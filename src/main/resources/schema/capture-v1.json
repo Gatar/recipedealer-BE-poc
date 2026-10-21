@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://recipedealer.example/schemas/capture-v1.json",
+  "type": "object",
+  "required": ["schemaVersion", "captureId", "capturedAt", "source", "recipe", "raw", "attachments"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "captureId": {"type": "string", "format": "uuid"},
+    "capturedAt": {"type": "string", "format": "date-time"},
+    "client": {"type": "object"},
+    "share": {"type": "object"},
+    "source": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"enum": ["WEB", "TEXT", "IMAGE", "PDF", "MANUAL"]},
+        "url": {"type": ["string", "null"]},
+        "siteName": {"type": ["string", "null"]},
+        "author": {"type": ["string", "null"]},
+        "files": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "recipe": {"$ref": "#/$defs/recipe"},
+    "completeness": {"type": "object"},
+    "provenance": {"type": "object", "additionalProperties": {"type": "string"}},
+    "raw": {"type": "object"},
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "role", "mimeType"],
+        "properties": {
+          "name": {"type": "string"},
+          "role": {"enum": ["image", "pdf", "screenshot"]},
+          "mimeType": {"type": "string"},
+          "width": {"type": "integer"},
+          "height": {"type": "integer"},
+          "bytes": {"type": "integer"}
+        }
+      }
+    },
+    "diagnostics": {"type": "object"}
+  },
+  "$defs": {
+    "group": {
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "name": {"type": ["string", "null"]},
+        "items": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "recipe": {
+      "type": "object",
+      "properties": {
+        "title": {"type": ["string", "null"]},
+        "language": {"type": ["string", "null"]},
+        "servings": {
+          "type": ["object", "null"],
+          "properties": {"text": {"type": "string"}, "count": {"type": ["integer", "null"]}}
+        },
+        "times": {
+          "type": "object",
+          "properties": {
+            "prepMinutes": {"type": ["integer", "null"]},
+            "cookMinutes": {"type": ["integer", "null"]},
+            "totalMinutes": {"type": ["integer", "null"]}
+          }
+        },
+        "ingredientGroups": {"type": "array", "items": {"$ref": "#/$defs/group"}},
+        "stepGroups": {"type": "array", "items": {"$ref": "#/$defs/group"}},
+        "notes": {"type": "array", "items": {"type": "string"}},
+        "images": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

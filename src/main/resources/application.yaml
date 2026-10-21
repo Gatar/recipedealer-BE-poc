@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: recipedealer
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/recipedealer}
+    username: ${DB_USER:recipedealer}
+    password: ${DB_PASSWORD:recipedealer}
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  forward-headers-strategy: framework

@@ -8,6 +8,19 @@ spring:
   threads:
     virtual:
       enabled: true
+  servlet:
+    multipart:
+      # Keep in sync with request_body max_size in the Caddyfile.
+      max-file-size: 25MB
+      max-request-size: 50MB
 
 server:
   forward-headers-strategy: framework
+  tomcat:
+    max-part-count: 64
+    # Read (and discard) the rest of a rejected upload so the client receives the 413 instead of a reset.
+    max-swallow-size: 64MB
+
+recipedealer:
+  storage:
+    blob-dir: ${BLOB_DIR:./data/blobs}

@@ -1,5 +1,10 @@
 package com.gatar.recipedealer;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
@@ -24,9 +29,16 @@ public class TestcontainersConfiguration {
     }
 
     @Bean
-    DynamicPropertyRegistrar adminCredentials() {
+    DynamicPropertyRegistrar testProperties() {
         String hash = new BCryptPasswordEncoder().encode(ADMIN_PASSWORD);
+        Path blobDir;
+        try {
+            blobDir = Files.createTempDirectory(Files.createDirectories(Path.of("target", "test-blobs")), "run-");
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
         return registry -> {
+            registry.add("recipedealer.storage.blob-dir", blobDir::toString);
             registry.add("recipedealer.admin.username", () -> ADMIN_USERNAME);
             registry.add("recipedealer.admin.password-hash", () -> hash);
         };

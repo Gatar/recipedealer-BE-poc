@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "captureId": "3f6c1a52-8a0e-4c5e-9a43-2a1f0d6b7c11",
+  "capturedAt": "2026-10-09T17:42:05Z",
+  "client": {"appVersion": "1.0.0", "androidSdk": 36, "deviceModel": "Pixel 9"},
+  "share": {"action": "android.intent.action.SEND", "mimeType": "text/plain", "sourceApp": "com.android.chrome",
+            "subject": "Szarlotka – Kwestia Smaku", "title": null},
+  "source": {"type": "WEB", "url": "https://www.kwestiasmaku.com/przepis/szarlotka", "siteName": "Kwestia Smaku",
+             "author": null, "files": []},
+  "recipe": {
+    "title": "Szarlotka",
+    "language": "pl",
+    "servings": {"text": "12 porcji", "count": 12},
+    "times": {},
+    "ingredientGroups": [
+      {"name": "Jabłka", "items": ["1,5 kg jabłek", "5 łyżek cukru", "1/2 łyżeczki cynamonu"]},
+      {"name": "Ciasto", "items": ["320 g mąki (2 szklanki)", "250 g zimnego masła*", "1 jajko"]}
+    ],
+    "stepGroups": [
+      {"name": "Jabłka", "items": ["Jabłka obrać, pokroić na ćwiartki i wyciąć gniazda nasienne."]},
+      {"name": "Pieczenie", "items": ["Piekarnik nagrzać do 180 stopni C.", "Piec przez ok. 50 minut."]}
+    ],
+    "notes": ["* masło można zastąpić margaryną."],
+    "images": ["https://www.kwestiasmaku.com/sites/v123.kwestiasmaku.com/files/szarlotka-00_2.jpg"]
+  },
+  "completeness": {"score": 1.0, "hasTitle": true, "hasIngredients": true, "hasSteps": true,
+                   "bestStage": "heuristic"},
+  "provenance": {"title": "heuristic", "servings": "heuristic", "ingredients": "heuristic", "steps": "heuristic",
+                 "notes": "heuristic", "images": "page"},
+  "raw": {
+    "web": {"finalUrl": "https://www.kwestiasmaku.com/przepis/szarlotka",
+            "canonicalUrl": "https://www.kwestiasmaku.com/przepis/szarlotka",
+            "title": "Szarlotka – Kwestia Smaku", "lang": "pl", "siteName": "Kwestia Smaku",
+            "ogImage": "https://www.kwestiasmaku.com/…/szarlotka-00_2.jpg", "jsonLdRecipeId": null,
+            "botChallenge": null, "stabilized": false, "renderTimeMs": 15000,
+            "readableText": "Szarlotka … Składniki … Przygotowanie …", "extractor": {"…": "seed extractor output"}}
+  },
+  "attachments": [],
+  "diagnostics": {"timingsMs": {"stabilize": 15000, "merge": 2}, "errors": [], "notes": ["trigger=timeout"]}
+}

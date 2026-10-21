@@ -6,6 +6,10 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+
+import com.gatar.recipedealer.capture.InvalidCaptureException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -21,6 +25,22 @@ public class ApiExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     ResponseEntity<ApiError> unreadable(HttpMessageNotReadableException e) {
         return ResponseEntity.badRequest().body(ApiError.of("invalid_request", "malformed JSON body"));
+    }
+
+    @ExceptionHandler(InvalidCaptureException.class)
+    ResponseEntity<ApiError> invalidCapture(InvalidCaptureException e) {
+        return ResponseEntity.badRequest().body(new ApiError("invalid_capture", e.details()));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<ApiError> tooLarge(MaxUploadSizeExceededException e) {
+        return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE)
+                .body(ApiError.of("payload_too_large", "max 25 MB per file and 50 MB per request"));
+    }
+
+    @ExceptionHandler(MultipartException.class)
+    ResponseEntity<ApiError> badMultipart(MultipartException e) {
+        return ResponseEntity.badRequest().body(ApiError.of("invalid_request", "malformed multipart request"));
     }
 
     @ExceptionHandler(NotFoundException.class)

@@ -1,5 +1,7 @@
 package com.gatar.recipedealer.web;
 
+import java.util.Map;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -10,6 +12,7 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 
 import com.gatar.recipedealer.capture.InvalidCaptureException;
+import com.gatar.recipedealer.lock.LockService;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -29,7 +32,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(InvalidCaptureException.class)
     ResponseEntity<ApiError> invalidCapture(InvalidCaptureException e) {
-        return ResponseEntity.badRequest().body(new ApiError("invalid_capture", e.details()));
+        return ResponseEntity.badRequest().body(new ApiError(e.error(), e.details()));
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
@@ -41,6 +44,13 @@ public class ApiExceptionHandler {
     @ExceptionHandler(MultipartException.class)
     ResponseEntity<ApiError> badMultipart(MultipartException e) {
         return ResponseEntity.badRequest().body(ApiError.of("invalid_request", "malformed multipart request"));
+    }
+
+    /** 409 with who holds the edit lock and until when. */
+    @ExceptionHandler(LockService.LockedException.class)
+    ResponseEntity<Map<String, Object>> locked(LockService.LockedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "locked",
+                "lockedBy", e.holder().lockedBy(), "expiresAt", e.holder().expiresAt()));
     }
 
     @ExceptionHandler(ApiException.class)

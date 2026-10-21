@@ -43,7 +43,11 @@ public class RecipeQueryService {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record RecipeView(UUID recipeId, UUID headRevisionId, String origin, boolean needsReview, JsonNode recipe,
                              String sourceSummary, String thumbnailBlob, List<String> urls, Instant createdAt,
-                             Instant updatedAt) {
+                             Instant updatedAt, LockInfo lock) {
+    }
+
+    /** The active edit lease, if someone is editing. */
+    public record LockInfo(String lockedBy, Instant expiresAt) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -82,15 +86,20 @@ public class RecipeQueryService {
                         SELECT r.id, r.head_revision_id, h.origin, h.needs_review, h.content, r.source_summary,
                                r.thumbnail_blob, r.created_at, r.updated_at,
                                ARRAY(SELECT k.value FROM recipe_key k WHERE k.recipe_id = r.id AND k.kind = 'CANONICAL_URL'
-                                     ORDER BY k.created_at) AS urls
+                                     ORDER BY k.created_at) AS urls,
+                               u.name || ' (' || d.device_name || ')' AS locked_by, l.expires_at AS lock_expires_at
                         FROM recipe r JOIN recipe_revision h ON h.id = r.head_revision_id
+                             LEFT JOIN recipe_lock l ON l.recipe_id = r.id AND l.expires_at >= now()
+                             LEFT JOIN app_user u ON u.id = l.user_id
+                             LEFT JOIN device_token d ON d.id = l.device_id
                         WHERE r.id = :id""")
                 .param("id", recipeId)
                 .query((rs, n) -> new RecipeView(Jdbc.uuid(rs, "id"), Jdbc.uuid(rs, "head_revision_id"),
                         rs.getString("origin"), rs.getBoolean("needs_review"), json(rs, "content"),
                         rs.getString("source_summary"), rs.getString("thumbnail_blob"),
                         List.of((String[]) rs.getArray("urls").getArray()), Jdbc.instant(rs, "created_at"),
-                        Jdbc.instant(rs, "updated_at")))
+                        Jdbc.instant(rs, "updated_at"), rs.getString("locked_by") == null ? null
+                                : new LockInfo(rs.getString("locked_by"), Jdbc.instant(rs, "lock_expires_at"))))
                 .single();
     }
 

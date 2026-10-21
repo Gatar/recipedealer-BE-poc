@@ -1,5 +1,6 @@
 package com.gatar.recipedealer.recipe;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -7,25 +8,37 @@ import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.gatar.recipedealer.auth.DevicePrincipal;
 import com.gatar.recipedealer.web.ETags;
+
+import tools.jackson.databind.JsonNode;
 
 @RestController
 @RequestMapping("/v1/recipes")
 public class RecipeController {
 
+    public static final String LOCK_ID = "Lock-Id";
+
     private final CandidateService candidates;
     private final RecipeQueryService queries;
+    private final RecipeEditService edits;
 
-    public RecipeController(CandidateService candidates, RecipeQueryService queries) {
+    public RecipeController(CandidateService candidates, RecipeQueryService queries, RecipeEditService edits) {
         this.candidates = candidates;
         this.queries = queries;
+        this.edits = edits;
     }
 
     @GetMapping("/candidates")
@@ -62,5 +75,32 @@ public class RecipeController {
     @GetMapping("/{recipeId}/revisions")
     public List<RecipeQueryService.RevisionView> revisions(@PathVariable UUID recipeId) {
         return queries.revisions(recipeId);
+    }
+
+    /**
+     * Saves an edit: {@code Lock-Id} of the active lease and {@code If-Match} with the head the editor started from.
+     * 201 with the new head (lock released) · 200 if the content equals the head · 409 lock · 412 head changed.
+     */
+    @PostMapping("/{recipeId}/revisions")
+    public ResponseEntity<RecipeQueryService.RecipeView> save(@PathVariable UUID recipeId,
+                                                              @RequestHeader(value = LOCK_ID, required = false) UUID lockId,
+                                                              @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+                                                              @RequestBody JsonNode recipe,
+                                                              @AuthenticationPrincipal DevicePrincipal device) {
+        var outcome = edits.save(recipeId, lockId, ifMatch, recipe, device);
+        var view = queries.recipe(recipeId);
+        var response = outcome.created()
+                ? ResponseEntity.created(URI.create("/v1/recipes/" + recipeId))
+                : ResponseEntity.ok();
+        return response.eTag(ETags.of(view.headRevisionId())).body(view);
+    }
+
+    /** Soft delete; needs the edit lock. */
+    @DeleteMapping("/{recipeId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable UUID recipeId,
+                       @RequestHeader(value = LOCK_ID, required = false) UUID lockId,
+                       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch) {
+        edits.delete(recipeId, lockId, ifMatch);
     }
 }

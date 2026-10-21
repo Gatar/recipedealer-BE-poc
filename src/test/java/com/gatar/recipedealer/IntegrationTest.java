@@ -12,7 +12,9 @@ import org.springframework.context.annotation.Import;
 /** Full application context against a real PostgreSQL container (shared across test classes). */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// The worker is disabled (bean conditions are evaluated before DynamicPropertyRegistrar runs, so it must be set here);
+// tests run jobs explicitly with JobWorker.drain().
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "recipedealer.worker.enabled=false")
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 public @interface IntegrationTest {

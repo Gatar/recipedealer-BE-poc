@@ -77,6 +77,19 @@ public final class TestCaptures {
         return id;
     }
 
+    /** Uploads, processes and resolves a capture as a NEW recipe; returns the recipe id. */
+    public static UUID newRecipe(MockMvcTester mvc, String token, com.gatar.recipedealer.processing.JobWorker worker,
+                                 ObjectNode capture) {
+        UUID captureId = upload(mvc, token, capture);
+        worker.drain();
+        var result = resolve(mvc, token, captureId, "{\"action\":\"NEW\"}");
+        String body = TestAuth.body(result);
+        if (result.getResponse().getStatus() != 200) {
+            throw new AssertionError("resolution failed: " + body);
+        }
+        return UUID.fromString(com.jayway.jsonpath.JsonPath.read(body, "$.recipes[0].recipeId"));
+    }
+
     public static MvcTestResult resolve(MockMvcTester mvc, String token, UUID captureId, String body) {
         return mvc.put().uri("/v1/captures/{id}/extracted/0/resolution", captureId)
                 .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token))

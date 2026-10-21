@@ -39,8 +39,6 @@ public class TestcontainersConfiguration {
         }
         return registry -> {
             registry.add("recipedealer.storage.blob-dir", blobDir::toString);
-            // Tests run jobs explicitly with JobWorker.drain().
-            registry.add("recipedealer.worker.enabled", () -> "false");
             registry.add("recipedealer.admin.username", () -> ADMIN_USERNAME);
             registry.add("recipedealer.admin.password-hash", () -> hash);
         };

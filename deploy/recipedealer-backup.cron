@@ -1,0 +1,4 @@
+# Installed as /etc/cron.d/recipedealer-backup. Server time (UTC on Hetzner images).
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+30 1 * * * root /srv/recipedealer/app/backup.sh >> /var/log/recipedealer-backup.log 2>&1

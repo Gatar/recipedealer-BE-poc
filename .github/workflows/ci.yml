@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Build and test (Testcontainers with PostgreSQL)
+        run: ./mvnw -B verify
+      - uses: actions/upload-artifact@v7
+        with:
+          name: recipedealer-jar
+          path: target/recipedealer.jar
+          retention-days: 7
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER || 'root' }}
+      APP_DIR: /srv/recipedealer/app
+    steps:
+      - name: Check deploy configuration
+        id: config
+        run: |
+          if [ -z "$SSH_HOST" ]; then
+            echo "::notice::Deployment skipped: set the SSH_HOST and SSH_PRIVATE_KEY secrets to enable it."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.config.outputs.enabled == 'true'
+      - uses: actions/download-artifact@v8
+        if: steps.config.outputs.enabled == 'true'
+        with:
+          name: recipedealer-jar
+          path: target
+      - name: Configure SSH
+        if: steps.config.outputs.enabled == 'true'
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          if [ -n "$SSH_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -T 15 "$SSH_HOST" > ~/.ssh/known_hosts
+          fi
+          printf 'Host server\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  IdentitiesOnly yes\n' \
+            "$SSH_HOST" "$SSH_USER" > ~/.ssh/config
+      - name: Copy JAR and deployment files
+        if: steps.config.outputs.enabled == 'true'
+        run: |
+          ssh server "mkdir -p $APP_DIR"
+          scp target/recipedealer.jar Dockerfile compose.yaml Caddyfile deploy/backup.sh deploy/wait-healthy.sh \
+            deploy/recipedealer-backup.cron \
+            server:$APP_DIR/
+      - name: Build image and restart
+        if: steps.config.outputs.enabled == 'true'
+        run: |
+          ssh server "cd $APP_DIR && chmod +x backup.sh wait-healthy.sh \
+            && install -m 644 recipedealer-backup.cron /etc/cron.d/recipedealer-backup \
+            && docker compose up -d --build --remove-orphans && docker image prune -f"
+      - name: Wait until the app answers
+        if: steps.config.outputs.enabled == 'true'
+        run: ssh server "$APP_DIR/wait-healthy.sh"

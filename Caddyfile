@@ -1,0 +1,20 @@
+# SITE_ADDRESS (from .env) is the server's public IPv4 for now. Let's Encrypt issues IP certificates only with
+# the short-lived (160 h) profile, which Caddy renews automatically. To move to a domain later, set SITE_ADDRESS
+# to the domain name; the profile can stay (short-lived certificates work for domains too) or be removed.
+{
+	# Clients connecting to an IP address send no SNI; use the site address to pick the certificate.
+	default_sni {$SITE_ADDRESS}
+	cert_issuer acme {
+		profile shortlived
+	}
+}
+
+{$SITE_ADDRESS} {
+	# Keep in sync with spring.servlet.multipart (25 MiB per file, 50 MiB per request; Spring "MB" means MiB); larger bodies get 413.
+	request_body {
+		max_size 50MiB
+	}
+	encode zstd gzip
+	reverse_proxy app:8080
+	log
+}

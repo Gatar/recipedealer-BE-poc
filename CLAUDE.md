@@ -14,7 +14,7 @@ Spring Boot backend for the RecipeDealer Android app (`../RecipeDealerFinal`, se
 
 ## Decisions (agreed 2026-10-21)
 - Versions: Spring Boot 4.1.1 (manages Flyway, Testcontainers 2.x, JUnit 6, Jackson 3), PostgreSQL 18.6,
-  networknt json-schema-validator 3.0.8, bucket4j_jdk17-core 8.21.0, java-uuid-generator 5.2.0,
+  networknt json-schema-validator 3.0.6 (3.0.7+ needs Jackson 3.2, Boot manages 3.1), bucket4j_jdk17-core 8.21.0, java-uuid-generator 5.2.0,
   eclipse-temurin 25 JDK image, Caddy 2.11.7.
 - Phone contract details (from the Android code): attachment parts are named like `attachments[].name`;
   errors `{"error": "...", "details": ["..."]}`; health body contains `"ok"`; provenance is a flat map
@@ -25,7 +25,17 @@ Spring Boot backend for the RecipeDealer Android app (`../RecipeDealerFinal`, se
 - `DELETE /v1/recipes/{id}` (soft delete, tombstone in the sync feed) is in scope.
 - Nightly `pg_dump` at 01:30 server time via host cron; keep the last 7 dumps.
 - Server: `ssh recipedealer` (root), aarch64, Ubuntu 26.04.1 LTS, Docker 29.9.2, Compose v5. Data under `/srv/recipedealer`.
+- Upload limits: 25 MiB per file, 50 MiB per request (Spring "MB" = MiB, Caddy `50MiB`).
+- Server IPv4: 2.31.66.200. Caddy uses the Let's Encrypt `shortlived` profile for the IP certificate.
+
+## Gotchas
+- `@ConditionalOnProperty` is evaluated before `DynamicPropertyRegistrar` runs: test properties that switch beans
+  (e.g. `recipedealer.worker.enabled=false`) go into `@SpringBootTest(properties = ...)` (see `IntegrationTest`).
+- MockMvc does not enforce multipart size limits; `UploadLimitsTest` uses real HTTP.
+- Tests share one database: use unique URLs/titles per test (see `TestCaptures.webCapture(id, url, title)`).
 
 ## Build & test
 - JDK 25 locally: `export JAVA_HOME=~/.jdks/jdk-25.0.4.1+1/Contents/Home`.
 - `./mvnw verify` – unit + integration tests (Testcontainers, needs a running Docker).
+- Local stack smoke test: copy `target/recipedealer.jar` next to the Dockerfile, create `.env` with
+  `DATA_DIR=./local-data`, `docker compose up -d --build postgres app` (publish 8080 with an override file).

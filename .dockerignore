@@ -1,0 +1,3 @@
+# The server build context holds only the JAR and deployment files; keep local builds the same.
+*
+!recipedealer.jar

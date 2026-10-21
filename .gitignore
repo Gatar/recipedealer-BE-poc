@@ -21,3 +21,9 @@ data/
 blobs/
 dumps/
 *.log
+
+# Local compose data (DATA_DIR=./local-data)
+local-data/
+
+# JAR copied next to the Dockerfile for a local image build
+/recipedealer.jar

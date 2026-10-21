@@ -1,8 +1,12 @@
 package com.gatar.recipedealer.capture;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -11,11 +15,15 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.gatar.recipedealer.auth.DevicePrincipal;
-import com.gatar.recipedealer.web.NotFoundException;
+import com.gatar.recipedealer.recipe.ResolutionRepository.Action;
+import com.gatar.recipedealer.recipe.ResolutionService;
+import com.gatar.recipedealer.web.ApiException;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,30 +33,52 @@ import jakarta.servlet.http.HttpServletRequest;
 public class CaptureController {
 
     private final CaptureIngestService ingest;
-    private final CaptureRepository captures;
+    private final CaptureQueryService queries;
+    private final ResolutionService resolutions;
 
-    public CaptureController(CaptureIngestService ingest, CaptureRepository captures) {
+    public CaptureController(CaptureIngestService ingest, CaptureQueryService queries, ResolutionService resolutions) {
         this.ingest = ingest;
-        this.captures = captures;
+        this.queries = queries;
+        this.resolutions = resolutions;
     }
 
     /** Multipart: part {@code capture} (JSON) plus one part per attachment, named like {@code attachments[].name}. */
     @PutMapping(path = "/{captureId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<CaptureStatusView> put(@PathVariable UUID captureId, HttpServletRequest request,
-                                                 @AuthenticationPrincipal DevicePrincipal device)
+    public ResponseEntity<CaptureView> put(@PathVariable UUID captureId, HttpServletRequest request,
+                                           @AuthenticationPrincipal DevicePrincipal device)
             throws IOException, ServletException {
         boolean created = ingest.ingest(captureId, request.getParts(), device);
-        return ResponseEntity.status(created ? HttpStatus.CREATED : HttpStatus.OK).body(status(captureId));
+        return ResponseEntity.status(created ? HttpStatus.CREATED : HttpStatus.OK).body(queries.view(captureId));
     }
 
     @GetMapping("/{captureId}")
-    public CaptureStatusView get(@PathVariable UUID captureId) {
-        return status(captureId);
+    public CaptureView get(@PathVariable UUID captureId) {
+        return queries.view(captureId);
     }
 
-    private CaptureStatusView status(UUID captureId) {
-        var state = captures.findState(captureId)
-                .orElseThrow(() -> new NotFoundException("capture " + captureId + " not found"));
-        return new CaptureStatusView(captureId, state.status().value(), List.of(), state.message());
+    /** The inbox; by default captures waiting for a decision or for attention. */
+    @GetMapping
+    public List<CaptureView> list(@RequestParam(defaultValue = "needs_decision,needs_attention") String status) {
+        return queries.inbox(parseStatuses(status));
+    }
+
+    public record ResolutionRequest(Action action, UUID recipeId) {
+    }
+
+    @PutMapping("/{captureId}/extracted/{index}/resolution")
+    public CaptureView resolve(@PathVariable UUID captureId, @PathVariable int index,
+                               @RequestBody ResolutionRequest request, @AuthenticationPrincipal DevicePrincipal device) {
+        resolutions.request(captureId, index, request.action(), request.recipeId(), device);
+        return queries.view(captureId);
+    }
+
+    private static Set<CaptureStatus> parseStatuses(String value) {
+        try {
+            return Arrays.stream(value.split(",")).map(String::strip).filter(s -> !s.isEmpty())
+                    .map(CaptureStatus::of)
+                    .collect(Collectors.toCollection(() -> EnumSet.noneOf(CaptureStatus.class)));
+        } catch (IllegalArgumentException e) {
+            throw ApiException.badRequest("unknown status in '" + value + "'");
+        }
     }
 }

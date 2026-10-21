@@ -29,9 +29,6 @@ public class CaptureRepository {
                              List<NewAttachment> attachments) {
     }
 
-    public record State(UUID captureId, CaptureStatus status, String message) {
-    }
-
     public Optional<String> findBodySha256(UUID captureId) {
         return jdbc.sql("SELECT body_sha256 FROM capture WHERE id = :id").param("id", captureId)
                 .query(String.class).optional();
@@ -81,14 +78,6 @@ public class CaptureRepository {
                 .param("status", CaptureStatus.ACCEPTED.value())
                 .update();
         return true;
-    }
-
-    public Optional<State> findState(UUID captureId) {
-        return jdbc.sql("SELECT capture_id, status, message FROM capture_state WHERE capture_id = :id")
-                .param("id", captureId)
-                .query((rs, n) -> new State(rs.getObject("capture_id", UUID.class), CaptureStatus.of(rs.getString("status")),
-                        rs.getString("message")))
-                .optional();
     }
 
     private void insertBlob(BlobRef blob) {

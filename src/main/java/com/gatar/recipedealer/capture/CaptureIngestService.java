@@ -23,13 +23,14 @@ import com.gatar.recipedealer.blob.BlobStore;
 import com.gatar.recipedealer.capture.CaptureRepository.NewAttachment;
 import com.gatar.recipedealer.capture.CaptureRepository.NewCapture;
 import com.gatar.recipedealer.common.Hashing;
+import com.gatar.recipedealer.processing.JobQueue;
 
 import jakarta.servlet.http.Part;
 import tools.jackson.databind.JsonNode;
 
 /**
  * Stores a capture: validate, write all blobs, then one transaction for the capture rows. A crash between the
- * two steps leaves only orphan blobs, never rows pointing to missing blobs.
+ * two steps leaves only orphan blobs, never rows pointing to missing blobs. The same transaction enqueues processing.
  */
 @Service
 public class CaptureIngestService {
@@ -41,13 +42,15 @@ public class CaptureIngestService {
     private final CaptureSchemaValidator validator;
     private final BlobStore blobs;
     private final CaptureRepository captures;
+    private final JobQueue jobs;
     private final TransactionTemplate tx;
 
     public CaptureIngestService(CaptureSchemaValidator validator, BlobStore blobs, CaptureRepository captures,
-                                TransactionTemplate tx) {
+                                JobQueue jobs, TransactionTemplate tx) {
         this.validator = validator;
         this.blobs = blobs;
         this.captures = captures;
+        this.jobs = jobs;
         this.tx = tx;
     }
 
@@ -95,7 +98,13 @@ public class CaptureIngestService {
         var capture = new NewCapture(captureId, OffsetDateTime.parse(json.get("capturedAt").asString()),
                 device.userId(), device.deviceId(), json.get("schemaVersion").asInt(), bodyBlob, body,
                 source.get("type").asString(), textOrNull(source.get("url")), attachments);
-        Boolean created = tx.execute(status -> captures.insert(capture));
+        Boolean created = tx.execute(status -> {
+            boolean inserted = captures.insert(capture);
+            if (inserted) {
+                jobs.enqueue(captureId);
+            }
+            return inserted;
+        });
         if (!Boolean.TRUE.equals(created)) {
             // Lost a race with a concurrent upload of the same capture.
             alreadyStored(captureId, body);

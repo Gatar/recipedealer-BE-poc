@@ -43,6 +43,11 @@ public class ApiExceptionHandler {
         return ResponseEntity.badRequest().body(ApiError.of("invalid_request", "malformed multipart request"));
     }
 
+    @ExceptionHandler(ApiException.class)
+    ResponseEntity<ApiError> api(ApiException e) {
+        return ResponseEntity.status(e.status()).body(ApiError.of(e.error(), e.getMessage()));
+    }
+
     @ExceptionHandler(NotFoundException.class)
     ResponseEntity<ApiError> notFound(NotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiError.of("not_found", e.getMessage()));

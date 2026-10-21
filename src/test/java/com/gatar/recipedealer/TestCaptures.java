@@ -41,6 +41,15 @@ public final class TestCaptures {
         return node;
     }
 
+    /** A web capture of its own page (unique URL and title), so tests do not share identity keys. */
+    public static ObjectNode webCapture(UUID captureId, String url, String title) {
+        return webCapture(captureId, c -> {
+            c.withObject("source").put("url", url);
+            c.withObject("raw").withObject("web").put("canonicalUrl", url);
+            c.withObject("recipe").put("title", title);
+        });
+    }
+
     public static ObjectNode attachment(String name, String role, String mimeType) {
         return JSON.createObjectNode().put("name", name).put("role", role).put("mimeType", mimeType);
     }
@@ -56,6 +65,30 @@ public final class TestCaptures {
 
     public static MockPart filePart(String name, String mimeType, byte[] content) {
         return new MockPart(name, name, content, MediaType.parseMediaType(mimeType));
+    }
+
+    /** Uploads a capture (no attachments) and expects 201. */
+    public static UUID upload(MockMvcTester mvc, String token, ObjectNode capture) {
+        UUID id = UUID.fromString(capture.get("captureId").asString());
+        var result = put(mvc, token, id, capturePart(bytes(capture)));
+        if (result.getResponse().getStatus() != 201) {
+            throw new AssertionError("upload failed: " + result.getResponse().getStatus() + " " + TestAuth.body(result));
+        }
+        return id;
+    }
+
+    public static MvcTestResult resolve(MockMvcTester mvc, String token, UUID captureId, String body) {
+        return mvc.put().uri("/v1/captures/{id}/extracted/0/resolution", captureId)
+                .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body)
+                .exchange();
+    }
+
+    public static MvcTestResult status(MockMvcTester mvc, String token, UUID captureId) {
+        return mvc.get().uri("/v1/captures/{id}", captureId)
+                .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token))
+                .exchange();
     }
 
     public static MvcTestResult put(MockMvcTester mvc, String token, UUID captureId, MockPart... parts) {

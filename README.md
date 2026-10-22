@@ -112,7 +112,8 @@ small application image itself (no registry).
 2. **Firewall**: allow inbound 22/tcp, 80/tcp (ACME HTTP challenge), 443/tcp and 443/udp, in the Hetzner Cloud
    Firewall or with `ufw`.
 
-3. **Deploy key for GitHub Actions**: on your machine,
+3. **SSH key for GitHub Actions** (Actions secrets, not repository deploy keys: the workflow logs in to the
+   server, the server never accesses GitHub): on your machine,
    `ssh-keygen -t ed25519 -f recipedealer-deploy -C github-actions -N ''`, append `recipedealer-deploy.pub` to
    `/root/.ssh/authorized_keys` on the server. In the GitHub repository settings → Secrets and variables →
    Actions add:

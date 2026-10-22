@@ -24,7 +24,7 @@ Spring Boot backend for the RecipeDealer Android app (`../RecipeDealerFinal`, se
 - Admin rate limit: 5 failed admin authentications per hour, global (not per IP), then 429 for all admin calls.
 - `DELETE /v1/recipes/{id}` (soft delete, tombstone in the sync feed) is in scope.
 - Nightly `pg_dump` at 01:30 server time via host cron; keep the last 7 dumps.
-- Server: `ssh recipedealer` (root), aarch64, Ubuntu 26.04.1 LTS, Docker 29.9.2, Compose v5. Data under `/srv/recipedealer`.
+- Server: `ssh poc-vps` (root), aarch64, Ubuntu 26.04.1 LTS, Docker 29.9.2, Compose v5. Data under `/srv/recipedealer`.
 - Upload limits: 25 MiB per file, 50 MiB per request (Spring "MB" = MiB, Caddy `50MiB`).
 - Server IPv4: 2.31.66.200. Caddy uses the Let's Encrypt `shortlived` profile for the IP certificate.
 
@@ -33,6 +33,10 @@ Spring Boot backend for the RecipeDealer Android app (`../RecipeDealerFinal`, se
   (e.g. `recipedealer.worker.enabled=false`) go into `@SpringBootTest(properties = ...)` (see `IntegrationTest`).
 - MockMvc does not enforce multipart size limits; `UploadLimitsTest` uses real HTTP.
 - Tests share one database: use unique URLs/titles per test (see `TestCaptures.webCapture(id, url, title)`).
+- Claude Code allows only `ssh poc-vps *` (permissions and sandbox exclusion): put SSH options after the host
+  (`ssh poc-vps -o ConnectTimeout=10 '...'`), otherwise the command does not match and is denied.
+- Run `gh`, `git push` and `ssh poc-vps` as standalone commands: never chain them with `;`, `&&`, `|`, and never
+  add redirections like `2>&1`. They must match permission patterns exactly to run outside the sandbox.
 
 ## Build & test
 - JDK 25 locally: `export JAVA_HOME=~/.jdks/jdk-25.0.4.1+1/Contents/Home`.

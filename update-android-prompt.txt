@@ -1,0 +1,249 @@
+You are working in the RecipeDealer Android app (this repository, Kotlin, Jetpack Compose, OkHttp,
+kotlinx.serialization, WorkManager). The backend (separate repo RecipeDealerBE-PoC, Spring Boot) is finished and
+deployed at https://2.31.66.200. Today the app uses only three backend endpoints, all in
+`upload/HttpCaptureSender.kt`:
+
+- PUT /v1/captures/{captureId}   (multipart upload)
+- GET /v1/captures/{captureId}   (status; only `status`, `recipes[].title` and `message` are read)
+- GET /v1/health
+
+Everything that happens after a capture is processed is missing. Your task: implement the rest of the backend API
+in the app, as specified below. Read the existing code first (`upload/`, `store/CaptureStore.kt`,
+`ui/CaptureListScreen.kt`, `ui/CaptureDetailScreen.kt`, `ui/RecipeEditor.kt`, `model/Capture.kt`,
+`settings/Settings.kt`) and follow its style and conventions. The backend contract below is authoritative; do not
+invent fields. If something in this spec is ambiguous or conflicts with the app's existing design, stop and ask
+before guessing.
+
+Work in milestones, keep the build and tests green after each, one commit per milestone. Suggested order:
+1. API client for all endpoints + unit tests with MockWebServer (like HttpCaptureSenderTest).
+2. Capture decisions (inbox + NEW/UPDATE). This unblocks the current end-to-end flow.
+3. Recipe list via the sync feed, offline cache, recipe detail, images from blobs.
+4. Search.
+5. Editing with the edit lock, revisions list, soft delete.
+UI texts are Polish, like the rest of the app.
+
+
+==========================================================================================================
+1. GENERAL RULES
+==========================================================================================================
+
+Base URL and token: the ones already in Settings (`baseUrl`, `token`). Every endpoint below needs
+`Authorization: Bearer <token>`. Use the same OkHttp client setup and `Accept: application/json`.
+
+IDs are UUID strings. Timestamps are ISO-8601 UTC strings (e.g. "2026-10-22T19:21:04.795133Z"), possibly with
+microseconds.
+
+JSON responses omit null fields (don't assume a key is present).
+
+Error body (all endpoints):
+    {"error": "<code>", "details": ["human readable", ...]}
+Exception: 409 for a held edit lock has a different shape (see section 5):
+    {"error": "locked", "lockedBy": "Ania (Pixel 9)", "expiresAt": "2026-10-22T19:30:00Z"}
+
+Common statuses:
+- 401: token missing/invalid/revoked -> reuse the app's existing "needs auth" handling.
+- 404 {"error":"not_found"}: unknown capture/recipe/blob.
+- 400 {"error":"invalid_request" | "invalid_recipe" | ...}: show `details`.
+- 5xx / IO errors: retryable.
+
+`recipe` objects everywhere are exactly the `recipe` object of the capture contract (capture-v1.json, the same one
+the app already builds and sends): `title`, `language`, `ingredientGroups[{name?, items[]}]`,
+`stepGroups[{name?, items[]}]`, `notes[]`, `times{}`, `images[]` (URLs), `author`, etc. Reuse the app's existing
+recipe model/serializer for it.
+
+
+==========================================================================================================
+2. CAPTURES: STATUS, INBOX AND DECISIONS
+==========================================================================================================
+
+Capture lifecycle (`status`):
+- accepted         stored, waiting for processing
+- processing       being processed
+- needs_decision   processed; the user must decide per extracted candidate: NEW recipe or UPDATE an existing one.
+                   Nothing becomes a recipe until the user decides. This is the normal state after every capture.
+- needs_attention  processing could not produce a usable recipe; see `reason` + `message`
+- done             all candidates resolved; `recipes` lists the resulting recipes, `message` summarizes
+
+`reason` codes (optional, machine readable; always show `message` to the user when present):
+- PROCESSING_FAILED    (needs_attention) processing failed repeatedly
+- AWAITING_EXTRACTION  (needs_attention) no ingredients/steps could be read; a decision can still be stored
+- TARGET_GONE          (needs_decision) the recipe chosen for UPDATE was deleted; ask again
+
+--- GET /v1/captures/{captureId} -> 200 CaptureView ---
+--- PUT /v1/captures/{captureId} returns the same CaptureView (201 new / 200 already stored) ---
+
+CaptureView:
+{
+  "captureId": "5408aea6-4419-484e-9194-fc7455bd4b00",
+  "status": "needs_decision",
+  "reason": "TARGET_GONE",                      // optional
+  "message": "...",                             // optional
+  "recipes": [ {"recipeId": "...", "title": "Gofry belgijskie"} ],   // resolved recipes, may be empty
+  "candidates": [                               // only when status == needs_decision
+    {
+      "index": 0,
+      "title": "Gofry belgijskie",              // optional
+      "ingredientCount": 10,
+      "stepCount": 7,
+      "needsReview": true,                      // ingredients/steps came only from heuristic/ocr/page
+      "urls": ["https://kwestiasmaku.com/przepis/gofry-belgijskie"],   // normalized canonical URLs
+      "resolution": "NEW",                      // optional: decision already stored (NEW | UPDATE)
+      "targetRecipeId": "..."                   // optional: UPDATE target of the stored decision
+    }
+  ],
+  "receivedAt": "...", "capturedAt": "...",     // capturedAt optional
+  "sourceType": "WEB",                          // as sent by the app
+  "sourceUrl": "https://...",                   // optional
+  "title": "Gofry belgijskie"                   // optional, title from the capture as sent
+}
+
+--- GET /v1/captures?status=needs_decision,needs_attention -> 200 [CaptureView, ...] ---
+The inbox. `status` is a comma-separated list of states (default: needs_decision,needs_attention). Newest first,
+max 200. Unknown status -> 400. Use it for an "Inbox / Do decyzji" view and to refresh local capture states
+(it also covers captures sent from other devices of the household).
+
+--- PUT /v1/captures/{captureId}/extracted/{index}/resolution -> 200 CaptureView ---
+Body: {"action": "NEW"}  or  {"action": "UPDATE", "recipeId": "<existing recipe id>"}
+Content-Type: application/json. `index` = candidate `index`.
+Idempotent: repeating the same decision is fine. A decision may be sent before processing finishes; it is stored
+and applied when the candidate exists. The response is the updated CaptureView (usually `done` with `recipes`).
+Errors:
+- 400 invalid_request: missing/unknown action, UPDATE without recipeId, NEW with recipeId, index out of range
+- 404 not_found: unknown capture, or no candidate with that index
+- 409 recipe_gone: UPDATE target does not exist or was deleted -> refresh candidates and ask again
+- 409 already_resolved: this candidate was already applied with a different decision -> show message, refresh
+
+Decision UI (per candidate of a needs_decision capture):
+- Show title, ingredientCount/stepCount, needsReview badge ("Wymaga sprawdzenia"), source URL.
+- Load possible matches with GET /v1/recipes/candidates (section 3) using the candidate's `title` and first `urls`
+  entry. Show them as "Aktualizuj: <title>" options (URL matches first, score 1.0, are almost certainly the same
+  recipe), plus "Nowy przepis".
+- After the PUT, update the local capture state from the response; on done, navigate to / offer the recipe.
+- Notify the user (existing Notifications / ResultNotifier) when a status poll finds needs_decision, so the capture
+  does not silently wait. Today `StatusWorker` stops polling once the status is not accepted/processing; keep that,
+  but store `candidates` (or refetch them when the decision screen opens).
+
+
+==========================================================================================================
+3. RECIPES: CANDIDATES, SYNC FEED, DETAIL, REVISIONS, SEARCH, BLOBS
+==========================================================================================================
+
+--- GET /v1/recipes/candidates?title=<t>&url=<u> -> 200 [Candidate, ...] ---
+Both params optional. Exact canonical-URL match first (score 1.0, matchReason URL), then similar titles
+(matchReason TITLE, trigram similarity). Max 10. Deleted recipes are excluded.
+Candidate:
+{"recipeId": "...", "title": "...", "score": 1.0, "matchReason": "URL" | "TITLE",
+ "sourceSummary": "kwestiasmaku.com", "thumbnailBlob": "<sha256>", "updatedAt": "..."}
+(sourceSummary and thumbnailBlob may be absent.)
+
+--- GET /v1/recipes?updatedSince=<iso>&cursor=<c>&limit=<n> -> 200 SyncPage ---
+Sync feed for an offline recipe cache, ordered by (updatedAt, recipeId).
+- First sync: no params. Incremental: pass the `nextCursor` saved after the previous sync as `cursor`
+  (preferred) or `updatedSince` (inclusive).
+- limit: default 100, max 500.
+- Keep requesting with `cursor = nextCursor` while `hasMore` is true. Persist the last `nextCursor` (it can stay
+  the same when nothing changed; it may be null only if there has never been any recipe).
+- 400 invalid_request for a malformed cursor -> drop the saved cursor and do a full sync.
+SyncPage: {"items": [SyncItem, ...], "nextCursor": "MTc5...", "hasMore": false}
+SyncItem, live recipe:
+{"recipeId": "...", "updatedAt": "...", "deleted": false, "headRevisionId": "...", "needsReview": true,
+ "recipe": { ...recipe object... }, "sourceSummary": "kwestiasmaku.com", "thumbnailBlob": "<sha256>"}
+SyncItem, tombstone (remove from the cache; no content fields):
+{"recipeId": "...", "updatedAt": "...", "deleted": true}
+{"recipeId": "...", "updatedAt": "...", "deleted": false, "mergedInto": "<recipeId>"}   // treat as removed;
+                                                                                          // redirect links to mergedInto
+When to sync: app start, pull-to-refresh, after a resolution or an edit, and periodically with WorkManager.
+The cached list is the recipe list screen (sorted by title or updatedAt); it must work offline.
+
+--- GET /v1/recipes/{recipeId} -> 200 RecipeView, header ETag: "<headRevisionId>" ---
+Supports If-None-Match with that ETag -> 304.
+RecipeView:
+{"recipeId": "...", "headRevisionId": "...", "origin": "MACHINE" | "USER", "needsReview": false,
+ "recipe": { ... }, "sourceSummary": "...", "thumbnailBlob": "<sha256>",
+ "urls": ["https://kwestiasmaku.com/przepis/..."], "createdAt": "...", "updatedAt": "...",
+ "lock": {"lockedBy": "Ania (Pixel 9)", "expiresAt": "..."}}        // lock only while someone edits
+410 {"error": "recipe_deleted"} or {"error": "recipe_merged"} (details contain the target id) -> remove from cache.
+Recipe detail screen: title, image (see blobs below; fall back to recipe.images[0] URL), ingredient groups, step
+groups, notes, times, source (sourceSummary + urls, tappable), needsReview banner ("Przepis wymaga sprawdzenia"),
+lock info if present ("Edytuje: Ania (Pixel 9)").
+
+--- GET /v1/recipes/{recipeId}/revisions -> 200 [RevisionView, ...] ---
+All revisions, newest first. Revisions newer than the head that are not the head are machine proposals (an
+automatic update did not replace a user-edited head).
+RevisionView:
+{"revisionId": "...", "parentId": "...", "head": true, "origin": "MACHINE" | "USER", "needsReview": false,
+ "runId": "...", "captureId": "...", "userName": "Ania", "contentHash": "...", "createdAt": "...",
+ "recipe": { ... }}                 // parentId, runId, captureId, userName optional
+UI: a simple history list (date, origin "Automatycznie"/"<userName>", head marker). Applying a proposal = open the
+editor prefilled with that revision's `recipe` and save it as a normal edit (section 5).
+
+--- GET /v1/recipes/search?q=<text> -> 200 [SearchHit, ...] ---
+Title + ingredient search, tolerant to missing Polish diacritics and small typos. Max 30, best first. Blank q -> [].
+SearchHit: {"recipeId": "...", "title": "...", "score": 0.83, "sourceSummary": "...", "thumbnailBlob": "...",
+            "updatedAt": "..."}
+Online only; when offline, fall back to a simple local filter over the cache.
+
+--- GET /v1/blobs/{sha256} -> 200 bytes ---
+Content-Type is the original attachment's media type; ETag "<sha256>"; Cache-Control: private, immutable, 1 year.
+Content never changes: cache on disk forever (OkHttp Cache or an image loader with the auth header). Needs the
+Bearer token like every other call. 404 if unknown. Use it for `thumbnailBlob`.
+
+
+==========================================================================================================
+4. NOT FOR THE APP
+==========================================================================================================
+/v1/admin/** (device enrollment, device list, revoke) uses HTTP Basic admin credentials and stays a curl/admin
+tool. Do not implement it in the app.
+
+
+==========================================================================================================
+5. EDITING (ONLINE ONLY): LOCK, SAVE, DELETE
+==========================================================================================================
+
+Editing needs a network connection; there is no offline editing. Flow:
+
+1. User taps "Edytuj" on the recipe detail.
+   GET /v1/recipes/{id} -> remember `headRevisionId` (= ETag) and the content.
+2. POST /v1/recipes/{id}/lock (no body)
+   201 {"lockId": "...", "expiresAt": "..."}       -> open the editor
+   409 {"error":"locked","lockedBy":"Ania (Pixel 9)","expiresAt":"..."} -> "Edytuje teraz: Ania (Pixel 9)", no editor
+   410 recipe_gone (deleted/merged), 404 not_found
+3. While the editor is open: PUT /v1/recipes/{id}/lock/{lockId} every 2 minutes (lease is 5 minutes, extended
+   by 5 minutes on each heartbeat). 200 {"lockId","expiresAt"}.
+   409 lock_expired or 409 locked -> the lock was lost: tell the user, keep their text, but saving will fail.
+4a. Save: POST /v1/recipes/{id}/revisions
+    Headers: Lock-Id: <lockId>, If-Match: "<headRevisionId from step 1>" (quoted, as received in ETag),
+             Content-Type: application/json
+    Body: the full edited recipe object (same schema as the capture `recipe`; validated server side).
+    201 RecipeView + new ETag: saved as a USER revision and new head; the lock is released by the server.
+    200 RecipeView: content identical to the head, nothing changed; the lock is still consumed (released).
+    400 invalid_recipe: details list JSON-schema errors -> show them, editor stays open.
+    409 lock_required / lock_expired / locked: lock missing or lost.
+    412 head_changed: someone changed the recipe since step 1 -> tell the user, offer to reload (their text is kept
+        so they can copy it).
+    428 if_match_required: client bug (missing If-Match).
+    410 recipe_gone.
+4b. Cancel: DELETE /v1/recipes/{id}/lock/{lockId} -> 204 (idempotent). Also release on back navigation / when the
+    editor is closed without saving. If the app is killed, the lease simply expires after 5 minutes.
+5. Delete recipe (inside an edit session, with confirmation dialog):
+   DELETE /v1/recipes/{id}   Headers: Lock-Id: <lockId>, optional If-Match: "<headRevisionId>"
+   204: soft delete; the recipe becomes a tombstone in the sync feed (other devices remove it on next sync).
+   Deleting an already deleted recipe -> 204. 409 lock errors and 412 head_changed as above.
+After 201/200/204, update the local cache (or run a sync).
+
+Reuse `ui/RecipeEditor.kt` (already edits a recipe before sending a capture) for the edit screen if it fits.
+
+
+==========================================================================================================
+6. TESTS
+==========================================================================================================
+- MockWebServer tests for every client call: request path, method, headers (Authorization, Lock-Id, If-Match),
+  body; parsing of every response shape above, including omitted optional fields and error bodies (409 locked
+  shape included).
+- Sync: paging with hasMore, tombstones remove cached recipes, cursor persisted, invalid cursor -> full sync.
+- Edit flow: heartbeat scheduling, 412 keeps the user's text, cancel releases the lock.
+- Resolution: NEW, UPDATE, 409 recipe_gone, idempotent repeat.
+
+End-to-end check against the real server (after the decision milestone): send a recipe from the browser share
+flow, wait for needs_decision, choose "Nowy przepis", confirm the capture becomes done and the recipe appears in
+the list after sync.

@@ -37,6 +37,9 @@ Spring Boot backend for the RecipeDealer Android app (`../RecipeDealerFinal`, se
   (`ssh poc-vps -o ConnectTimeout=10 '...'`), otherwise the command does not match and is denied.
 - Run `gh`, `git push` and `ssh poc-vps` as standalone commands: never chain them with `;`, `&&`, `|`, and never
   add redirections like `2>&1`. They must match permission patterns exactly to run outside the sandbox.
+- Command substitution (`$(...)`) anywhere in an `ssh poc-vps` command, even inside the quoted remote command,
+  breaks the match: it runs sandboxed and fails with "Could not resolve hostname poc-vps". Split it into separate
+  calls and pass values literally.
 
 ## Build & test
 - JDK 25 locally: `export JAVA_HOME=~/.jdks/jdk-25.0.4.1+1/Contents/Home`.

@@ -21,6 +21,7 @@ data/
 blobs/
 dumps/
 *.log
+token-*.txt
 
 # Local compose data (DATA_DIR=./local-data)
 local-data/

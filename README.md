@@ -16,7 +16,8 @@ and editing.
   `ProvenanceGuard` keeps fields the user edited on the phone; candidates whose ingredients or steps come from
   `heuristic` / `ocr` / `page` are marked `needsReview`.
 - **Recipes** have identity keys (normalized canonical URL, JSON-LD `@id`) and immutable **revisions**
-  (`MACHINE` or `USER`). Automatic changes never move a head the user wrote; equal content creates no revision.
+  (`MACHINE` or `USER`). Automatic changes never move a head the user wrote; equal content creates no revision
+  (except a user save of an unchanged head that `needsReview`: it becomes a USER revision and clears the flag).
 - **Deduplication** is the user's decision (NEW or UPDATE) based on candidates ranked by exact URL, then
   trigram title similarity. A decision may arrive before processing finishes and is applied later.
 - **Editing** is online only: 5-minute edit lease (`Lock-Id`) plus `If-Match` on the head revision.
@@ -43,7 +44,7 @@ All endpoints except `/v1/admin/**` need `Authorization: Bearer <device token>`.
 | `POST /v1/recipes/{id}/lock` | 201 `{lockId, expiresAt}` · 409 `{lockedBy, expiresAt}` |
 | `PUT /v1/recipes/{id}/lock/{lockId}` | Heartbeat (+5 min; send every 2 min) |
 | `DELETE /v1/recipes/{id}/lock/{lockId}` | Cancel editing |
-| `POST /v1/recipes/{id}/revisions` | Headers `Lock-Id`, `If-Match: "<headRevisionId>"`, body = recipe DTO. 201 · 409 lock · 412 head changed · 428 no `If-Match` |
+| `POST /v1/recipes/{id}/revisions` | Headers `Lock-Id`, `If-Match: "<headRevisionId>"`, body = recipe DTO. 201 new head (also unchanged content over a head that `needsReview`: confirms it) · 200 unchanged content · 409 lock · 412 head changed · 428 no `If-Match` |
 | `DELETE /v1/recipes/{id}` | Soft delete (needs `Lock-Id`); tombstone in the sync feed |
 | `GET /v1/tags` | Tag catalog in the user's order: `{categories: [{name, title, tags: [{id, name, title, recipeCount}]}]}`; tag id = `category:tag` |
 | `POST /v1/tags/categories`, `PATCH`/`DELETE /v1/tags/categories/{category}` | `{name?, title, position?}` (name derived from the title when missing); rename cascades, delete drops its tags. 200 with the whole catalog · 409 `tag_exists` · 404 `not_found` |

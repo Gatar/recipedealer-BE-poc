@@ -26,7 +26,7 @@ public class RecipeRepository {
 
     /** Current state of a recipe and its head, read with a row lock on the recipe. */
     public record Head(UUID recipeId, UUID headRevisionId, Origin headOrigin, String headContentHash,
-                       boolean deleted, UUID mergedInto) {
+                       boolean headNeedsReview, boolean deleted, UUID mergedInto) {
     }
 
     public record NewRevision(UUID id, UUID recipeId, UUID parentId, Origin origin, UUID runId, UUID captureId,
@@ -39,14 +39,16 @@ public class RecipeRepository {
 
     public Optional<Head> lockHead(UUID recipeId) {
         return jdbc.sql("""
-                        SELECT r.id, r.head_revision_id, h.origin, h.content_hash, r.deleted_at IS NOT NULL AS deleted, r.merged_into
+                        SELECT r.id, r.head_revision_id, h.origin, h.content_hash, h.needs_review,
+                               r.deleted_at IS NOT NULL AS deleted, r.merged_into
                         FROM recipe r LEFT JOIN recipe_revision h ON h.id = r.head_revision_id
                         WHERE r.id = :id
                         FOR UPDATE OF r""")
                 .param("id", recipeId)
                 .query((rs, n) -> new Head(Jdbc.uuid(rs, "id"), Jdbc.uuid(rs, "head_revision_id"),
                         rs.getString("origin") == null ? null : Origin.valueOf(rs.getString("origin")),
-                        rs.getString("content_hash"), rs.getBoolean("deleted"), Jdbc.uuid(rs, "merged_into")))
+                        rs.getString("content_hash"), rs.getBoolean("needs_review"), rs.getBoolean("deleted"),
+                        Jdbc.uuid(rs, "merged_into")))
                 .optional();
     }
 

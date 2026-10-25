@@ -206,17 +206,49 @@ class LockAndEditTest {
         assertThat(save(ania, lockId, "*", EDITED)).hasStatus(412);
     }
 
+    private String content(String revisionId) {
+        return jdbc.sql("SELECT content::text FROM recipe_revision WHERE id = CAST(:id AS uuid)").param("id", revisionId)
+                .query(String.class).single();
+    }
+
+    private long revisionCount() {
+        return jdbc.sql("SELECT count(*) FROM recipe_revision WHERE recipe_id = :id").param("id", recipeId)
+                .query(Long.class).single();
+    }
+
     @Test
     void saveWithUnchangedContentCreatesNoRevision() {
+        assertThat(save(ania, lockId(acquire(ania)), "\"" + head() + "\"", EDITED)).hasStatus(201);
         String head = head();
-        String content = jdbc.sql("SELECT content::text FROM recipe_revision WHERE id = CAST(:id AS uuid)").param("id", head)
-                .query(String.class).single();
-        String lockId = lockId(acquire(ania));
 
-        assertThat(save(ania, lockId, "\"" + head + "\"", content)).hasStatus(200);
+        assertThat(save(ania, lockId(acquire(ania)), "\"" + head + "\"", content(head))).hasStatus(200);
         assertThat(head()).isEqualTo(head);
-        assertThat(jdbc.sql("SELECT count(*) FROM recipe_revision WHERE recipe_id = :id").param("id", recipeId)
-                .query(Long.class).single()).isEqualTo(1);
+        assertThat(revisionCount()).isEqualTo(2);
+    }
+
+    @Test
+    void saveWithUnchangedContentConfirmsHeadThatNeedsReview() {
+        String oldHead = head();
+        assertThat(jdbc.sql("SELECT needs_review FROM recipe_revision WHERE id = CAST(:id AS uuid)").param("id", oldHead)
+                .query(Boolean.class).single()).isTrue();
+
+        var result = save(ania, lockId(acquire(ania)), "\"" + oldHead + "\"", content(oldHead));
+
+        assertThat(result).hasStatus(201);
+        String newHead = head();
+        assertThat(newHead).isNotEqualTo(oldHead);
+        String body = TestAuth.body(result);
+        assertThat(JsonPath.<String>read(body, "$.origin")).isEqualTo("USER");
+        assertThat(JsonPath.<Boolean>read(body, "$.needsReview")).isFalse();
+        assertThat(content(newHead)).isEqualTo(content(oldHead));
+        assertThat(jdbc.sql("SELECT parent_id::text FROM recipe_revision WHERE id = CAST(:id AS uuid)").param("id", newHead)
+                .query(String.class).single()).isEqualTo(oldHead);
+        assertThat(jdbc.sql("SELECT count(*) FROM recipe_lock WHERE recipe_id = :id").param("id", recipeId)
+                .query(Long.class).single()).isZero();
+
+        // Confirmed once: the next unchanged save is a no-op again.
+        assertThat(save(ania, lockId(acquire(ania)), "\"" + newHead + "\"", content(newHead))).hasStatus(200);
+        assertThat(revisionCount()).isEqualTo(2);
     }
 
     @Test

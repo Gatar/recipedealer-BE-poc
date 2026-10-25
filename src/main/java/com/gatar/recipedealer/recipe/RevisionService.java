@@ -17,7 +17,8 @@ import tools.jackson.databind.JsonNode;
 /**
  * The only place that creates revisions and moves heads.
  * <ul>
- *   <li>Equal content to the head: no new revision.</li>
+ *   <li>Equal content to the head: no new revision, unless an explicit user action confirms a head that needs
+ *       review (the new revision has the same content without {@code needsReview}).</li>
  *   <li>An explicit user action (resolution, edit) always moves the head.</li>
  *   <li>An automatic change never moves a head with origin {@code USER}; it is kept as a proposal.</li>
  * </ul>
@@ -55,7 +56,8 @@ public class RevisionService {
                     "recipe " + recipeId + (head.deleted() ? " was deleted" : " was merged into " + head.mergedInto()));
         }
         String hash = RecipeContent.contentHash(content.recipe());
-        if (hash.equals(head.headContentHash())) {
+        boolean confirmsReview = explicitUserAction && head.headNeedsReview() && !content.needsReview();
+        if (hash.equals(head.headContentHash()) && !confirmsReview) {
             return new Outcome(recipeId, head.headRevisionId(), false, false);
         }
         boolean moveHead = explicitUserAction || head.headOrigin() != Origin.USER;

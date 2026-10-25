@@ -1,13 +1,11 @@
 # RecipeDealer backend (PoC)
 
-Spring Boot backend for the RecipeDealer Android app (`../RecipeDealerFinal`, separate repo).
+Spring Boot backend for the RecipeDealer Android app (`../RecipeDealerAndroid`, separate repo).
+Shared rules (language, contract, deployment order, VPS, permission pitfalls): `../CLAUDE.md`.
 
 ## Rules
-- Code, identifiers, comments, commit messages, test names: English.
 - Build in milestones (see README); keep the build green; one commit per milestone.
 - Data access: `JdbcClient` + plain SQL, no JPA. Migrations: Flyway, one file per milestone, never edit an applied one.
-- The capture contract is `src/main/resources/schema/capture-v1.json` (copied unchanged from the Android repo).
-  Do not invent fields; an incompatible change means a new `schemaVersion` and a new file.
 - Server-generated IDs are UUIDv7; `captureId` comes from the phone.
 - All time comparisons (locks, jobs) use the database clock (`now()`).
 - Pin library and image versions; check current stable versions instead of relying on memory.
@@ -24,9 +22,7 @@ Spring Boot backend for the RecipeDealer Android app (`../RecipeDealerFinal`, se
 - Admin rate limit: 5 failed admin authentications per hour, global (not per IP), then 429 for all admin calls.
 - `DELETE /v1/recipes/{id}` (soft delete, tombstone in the sync feed) is in scope.
 - Nightly `pg_dump` at 01:30 server time via host cron; keep the last 7 dumps.
-- Server: `ssh poc-vps` (root), aarch64, Ubuntu 26.04.1 LTS, Docker 29.9.2, Compose v5. Data under `/srv/recipedealer`.
 - Upload limits: 25 MiB per file, 50 MiB per request (Spring "MB" = MiB, Caddy `50MiB`).
-- Server IPv4: 2.31.66.200. Caddy uses the Let's Encrypt `shortlived` profile for the IP certificate.
 
 ## Tags (agreed 2026-10-25)
 - Two levels `category:tag`; each level has a `name` (stable readable id, `[a-z0-9-]`, e.g. `meal:breakfast`) and
@@ -41,19 +37,15 @@ Spring Boot backend for the RecipeDealer Android app (`../RecipeDealerFinal`, se
   (e.g. `recipedealer.worker.enabled=false`) go into `@SpringBootTest(properties = ...)` (see `IntegrationTest`).
 - MockMvc does not enforce multipart size limits; `UploadLimitsTest` uses real HTTP.
 - Tests share one database: use unique URLs/titles per test (see `TestCaptures.webCapture(id, url, title)`).
-- Claude Code allows only `ssh poc-vps *` (permissions and sandbox exclusion): put SSH options after the host
-  (`ssh poc-vps -o ConnectTimeout=10 '...'`), otherwise the command does not match and is denied.
-- Run `gh`, `git push` and `ssh poc-vps` as standalone commands: never chain them with `;`, `&&`, `|`, and never
-  add redirections like `2>&1`. They must match permission patterns exactly to run outside the sandbox.
-- Command substitution (`$(...)`) anywhere in an `ssh poc-vps` command, even inside the quoted remote command,
-  breaks the match: it runs sandboxed and fails with "Could not resolve hostname poc-vps". Split it into separate
-  calls and pass values literally.
 
 ## Build & test
-- JDK 25 is on the PATH (Corretto); run `./mvnw` as is. Commands with `export JAVA_HOME=...` or a `JAVA_HOME=...`
-  prefix are denied by the Claude Code permissions.
+- JDK 25 is on the PATH (Corretto); run `./mvnw` as is.
 - `./mvnw verify` – unit + integration tests (Testcontainers, needs a running Docker). In the Claude Code sandbox add
   `"-DargLine=-Djava.io.tmpdir=$TMPDIR"` (the system temp dir is not writable); Docker is reached through
   `DOCKER_HOST` and `allowUnixSockets` in the user's settings.
 - Local stack smoke test: copy `target/recipedealer.jar` next to the Dockerfile, create `.env` with
   `DATA_DIR=./local-data`, `docker compose up -d --build postgres app` (publish 8080 with an override file).
+  In the Claude Code sandbox `--build` and image pulls fail (buildx cannot write `~/.docker/buildx`, pulls hit the
+  keychain): use an override with `build: !reset null`, `image: recipedealer-app:latest`, `pull_policy: never` and
+  the new JAR mounted over `/app/recipedealer.jar`; the user rebuilds the image outside the sandbox when the
+  Dockerfile changes.

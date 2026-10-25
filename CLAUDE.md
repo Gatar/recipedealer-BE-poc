@@ -50,7 +50,10 @@ Spring Boot backend for the RecipeDealer Android app (`../RecipeDealerFinal`, se
   calls and pass values literally.
 
 ## Build & test
-- JDK 25 locally: `export JAVA_HOME=~/.jdks/jdk-25.0.4.1+1/Contents/Home`.
-- `./mvnw verify` – unit + integration tests (Testcontainers, needs a running Docker).
+- JDK 25 is on the PATH (Corretto); run `./mvnw` as is. Commands with `export JAVA_HOME=...` or a `JAVA_HOME=...`
+  prefix are denied by the Claude Code permissions.
+- `./mvnw verify` – unit + integration tests (Testcontainers, needs a running Docker). In the Claude Code sandbox add
+  `"-DargLine=-Djava.io.tmpdir=$TMPDIR"` (the system temp dir is not writable); Docker is reached through
+  `DOCKER_HOST` and `allowUnixSockets` in the user's settings.
 - Local stack smoke test: copy `target/recipedealer.jar` next to the Dockerfile, create `.env` with
   `DATA_DIR=./local-data`, `docker compose up -d --build postgres app` (publish 8080 with an override file).

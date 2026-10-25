@@ -46,7 +46,7 @@ class TagTest {
     @Test
     void catalogKeepsTheUsersOrderAndDerivesNames() {
         String meal = "meal-" + sfx;
-        assertThat(post("/v1/tags/categories", "{\"name\":\"%s\",\"title\":\"Posiłek\"}".formatted(meal))).hasStatus(201);
+        assertThat(post("/v1/tags/categories", "{\"name\":\"%s\",\"title\":\"Posiłek\"}".formatted(meal))).hasStatusOk();
         post("/v1/tags/categories/{c}/tags", "{\"name\":\"dinner\",\"title\":\"Obiad\"}", meal);
         post("/v1/tags/categories/{c}/tags", "{\"name\":\"supper\",\"title\":\"Kolacja\"}", meal);
         post("/v1/tags/categories/{c}/tags", "{\"name\":\"breakfast\",\"title\":\"Śniadanie\",\"position\":0}", meal);
@@ -80,8 +80,10 @@ class TagTest {
         assertThat(post("/v1/tags/categories/{c}/tags", "{\"name\":\"dinner\",\"title\":\"Obiad 2\"}", meal)).hasStatus(409);
         assertThat(post("/v1/tags/categories", "{\"name\":\"Meal:X\",\"title\":\"Bad\"}")).hasStatus(400);
         assertThat(post("/v1/tags/categories", "{\"title\":\"  \"}")).hasStatus(400);
-        assertThat(post("/v1/tags/categories/{c}/tags", "{\"title\":\"Obiad\"}", "missing-" + sfx)).hasStatus(404);
-        assertThat(patch("/v1/tags/categories/{c}/tags/{t}", "{\"title\":\"X\"}", meal, "missing")).hasStatus(404);
+        assertThat(post("/v1/tags/categories/{c}/tags", "{\"title\":\"Obiad\"}", "missing-" + sfx))
+                .hasStatus(404).bodyJson().extractingPath("$.error").isEqualTo("not_found");
+        assertThat(patch("/v1/tags/categories/{c}/tags/{t}", "{\"title\":\"X\"}", meal, "missing"))
+                .hasStatus(404).bodyJson().extractingPath("$.error").isEqualTo("not_found");
     }
 
     @Test

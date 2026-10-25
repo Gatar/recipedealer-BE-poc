@@ -46,8 +46,8 @@ All endpoints except `/v1/admin/**` need `Authorization: Bearer <device token>`.
 | `POST /v1/recipes/{id}/revisions` | Headers `Lock-Id`, `If-Match: "<headRevisionId>"`, body = recipe DTO. 201 · 409 lock · 412 head changed · 428 no `If-Match` |
 | `DELETE /v1/recipes/{id}` | Soft delete (needs `Lock-Id`); tombstone in the sync feed |
 | `GET /v1/tags` | Tag catalog in the user's order: `{categories: [{name, title, tags: [{id, name, title, recipeCount}]}]}`; tag id = `category:tag` |
-| `POST /v1/tags/categories`, `PATCH`/`DELETE /v1/tags/categories/{category}` | `{name?, title, position?}` (name derived from the title when missing); rename cascades, delete drops its tags. 201/200 with the whole catalog · 409 `tag_exists` |
-| `POST /v1/tags/categories/{category}/tags`, `PATCH`/`DELETE …/tags/{tag}` | `{name?, title, category?, position?}` (`category` moves the tag). Answers with the whole catalog |
+| `POST /v1/tags/categories`, `PATCH`/`DELETE /v1/tags/categories/{category}` | `{name?, title, position?}` (name derived from the title when missing); rename cascades, delete drops its tags. 200 with the whole catalog · 409 `tag_exists` · 404 `not_found` |
+| `POST /v1/tags/categories/{category}/tags`, `PATCH`/`DELETE …/tags/{tag}` | `{name?, title, category?, position?}` (`category` moves the tag). 200 with the whole catalog · 409 `tag_exists` · 404 `not_found` |
 | `PUT /v1/recipes/{id}/tags` | `{"tags": ["meal:dinner", …]}` replaces the recipe's tags (no lock, no revision); 400 `unknown_tag` · 410 |
 | `GET /v1/blobs/{sha256}` | Blob content, cacheable forever |
 | `GET /v1/health` | `{"status":"ok"}` with a valid token |

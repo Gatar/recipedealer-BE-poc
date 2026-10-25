@@ -19,6 +19,7 @@ import com.gatar.recipedealer.processing.StoredCandidate;
 import com.gatar.recipedealer.recipe.RecipeRepository.Origin;
 import com.gatar.recipedealer.recipe.ResolutionRepository.Action;
 import com.gatar.recipedealer.recipe.ResolutionRepository.Resolution;
+import com.gatar.recipedealer.tag.TagService;
 import com.gatar.recipedealer.web.ApiException;
 import com.gatar.recipedealer.web.NotFoundException;
 
@@ -37,18 +38,24 @@ public class ResolutionService {
     private final ResolutionRepository resolutions;
     private final RecipeRepository recipes;
     private final RevisionService revisions;
+    private final TagService tags;
 
     public ResolutionService(ProcessingRepository processing, ResolutionRepository resolutions, RecipeRepository recipes,
-                             RevisionService revisions) {
+                             RevisionService revisions, TagService tags) {
         this.processing = processing;
         this.resolutions = resolutions;
         this.recipes = recipes;
         this.revisions = revisions;
+        this.tags = tags;
     }
 
-    /** {@code PUT /v1/captures/{id}/extracted/{index}/resolution}. Idempotent. */
+    /**
+     * {@code PUT /v1/captures/{id}/extracted/{index}/resolution}. Idempotent. {@code tagIds} (NEW only) are assigned
+     * to the new recipe.
+     */
     @Transactional
-    public void request(UUID captureId, int index, Action action, UUID targetRecipeId, DevicePrincipal device) {
+    public void request(UUID captureId, int index, Action action, UUID targetRecipeId, List<String> tagIds,
+                        DevicePrincipal device) {
         if (index < 0 || index >= MAX_CANDIDATES) {
             throw ApiException.badRequest("candidate index must be between 0 and " + (MAX_CANDIDATES - 1));
         }
@@ -58,6 +65,10 @@ public class ResolutionService {
         if ((action == Action.UPDATE) != (targetRecipeId != null)) {
             throw ApiException.badRequest(action == Action.UPDATE ? "UPDATE requires recipeId" : "NEW must not have a recipeId");
         }
+        if (action == Action.UPDATE && tagIds != null && !tagIds.isEmpty()) {
+            throw ApiException.badRequest("tags can be chosen only with NEW");
+        }
+        List<String> chosen = List.copyOf(tags.requireExisting(tagIds));
         processing.lockState(captureId);
         if (action == Action.UPDATE && recipes.liveTarget(targetRecipeId).isEmpty()) {
             throw ApiException.conflict("recipe_gone", "recipe " + targetRecipeId + " does not exist or was deleted");
@@ -72,8 +83,8 @@ public class ResolutionService {
             }
             throw ApiException.conflict("already_resolved", "candidate " + index + " was already resolved differently");
         }
-        if (!same) {
-            resolutions.upsertPending(captureId, index, action, targetRecipeId, device.userId(), device.deviceId());
+        if (!same || !existing.get().tags().equals(chosen)) {
+            resolutions.upsertPending(captureId, index, action, targetRecipeId, chosen, device.userId(), device.deviceId());
         }
 
         var run = processing.latestCompletedRun(captureId);
@@ -118,6 +129,7 @@ public class ResolutionService {
         List<String> messages = new ArrayList<>();
         if (resolution.action() == Action.NEW) {
             outcome = revisions.createRecipe(content);
+            tags.assignToNewRecipe(outcome.recipeId(), resolution.tags());
             messages.add("Created recipe \"" + titleOf(outcome.recipeId()) + "\".");
         } else {
             var target = recipes.liveTarget(resolution.targetRecipeId());

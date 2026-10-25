@@ -20,8 +20,9 @@ public class ResolutionRepository {
 
     public enum Action { NEW, UPDATE }
 
-    public record Resolution(UUID captureId, int index, Action action, UUID targetRecipeId, UUID userId, UUID deviceId,
-                             boolean applied, UUID appliedRecipeId, String message) {
+    /** {@code tags}: tag ids chosen with a NEW decision. */
+    public record Resolution(UUID captureId, int index, Action action, UUID targetRecipeId, List<String> tags, UUID userId,
+                             UUID deviceId, boolean applied, UUID appliedRecipeId, String message) {
     }
 
     public Optional<Resolution> find(UUID captureId, int index) {
@@ -39,12 +40,13 @@ public class ResolutionRepository {
                 .list();
     }
 
-    public void upsertPending(UUID captureId, int index, Action action, UUID targetRecipeId, UUID userId, UUID deviceId) {
+    public void upsertPending(UUID captureId, int index, Action action, UUID targetRecipeId, List<String> tags,
+                              UUID userId, UUID deviceId) {
         jdbc.sql("""
-                        INSERT INTO capture_resolution (capture_id, idx, action, target_recipe_id, user_id, device_id)
-                        VALUES (:captureId, :idx, :action, :target, :userId, :deviceId)
+                        INSERT INTO capture_resolution (capture_id, idx, action, target_recipe_id, tags, user_id, device_id)
+                        VALUES (:captureId, :idx, :action, :target, string_to_array(:tags, ','), :userId, :deviceId)
                         ON CONFLICT (capture_id, idx) DO UPDATE
-                            SET action = EXCLUDED.action, target_recipe_id = EXCLUDED.target_recipe_id,
+                            SET action = EXCLUDED.action, target_recipe_id = EXCLUDED.target_recipe_id, tags = EXCLUDED.tags,
                                 user_id = EXCLUDED.user_id, device_id = EXCLUDED.device_id, requested_at = now(),
                                 message = NULL
                             WHERE capture_resolution.applied_at IS NULL""")
@@ -52,6 +54,7 @@ public class ResolutionRepository {
                 .param("idx", index)
                 .param("action", action.name())
                 .param("target", targetRecipeId)
+                .param("tags", String.join(",", tags))
                 .param("userId", userId)
                 .param("deviceId", deviceId)
                 .update();
@@ -80,7 +83,8 @@ public class ResolutionRepository {
 
     private static Resolution map(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new Resolution(Jdbc.uuid(rs, "capture_id"), rs.getInt("idx"), Action.valueOf(rs.getString("action")),
-                Jdbc.uuid(rs, "target_recipe_id"), Jdbc.uuid(rs, "user_id"), Jdbc.uuid(rs, "device_id"),
+                Jdbc.uuid(rs, "target_recipe_id"), List.of((String[]) rs.getArray("tags").getArray()),
+                Jdbc.uuid(rs, "user_id"), Jdbc.uuid(rs, "device_id"),
                 rs.getObject("applied_at") != null, Jdbc.uuid(rs, "applied_recipe_id"), rs.getString("message"));
     }
 }

@@ -28,6 +28,14 @@ Spring Boot backend for the RecipeDealer Android app (`../RecipeDealerFinal`, se
 - Upload limits: 25 MiB per file, 50 MiB per request (Spring "MB" = MiB, Caddy `50MiB`).
 - Server IPv4: 2.31.66.200. Caddy uses the Let's Encrypt `shortlived` profile for the IP certificate.
 
+## Tags (agreed 2026-10-25)
+- Two levels `category:tag`; each level has a `name` (stable readable id, `[a-z0-9-]`, e.g. `meal:breakfast`) and
+  a `title` (shown, e.g. "Posiłek" / "Śniadanie"). Catalog order = the user's order (`position`).
+- Assignments (`recipe_tag`) are not recipe content: no revision, no edit lock. Changing them, or renaming / moving /
+  deleting a tag in use, bumps `recipe.updated_at` so the recipe comes again in the sync feed with its new `tags`.
+- Tags are assigned manually only (also with a NEW decision); no ingredient tags (ingredient search covers that).
+- Recipe merge does not exist yet; when it comes, the target gets the union of both recipes' tags.
+
 ## Gotchas
 - `@ConditionalOnProperty` is evaluated before `DynamicPropertyRegistrar` runs: test properties that switch beans
   (e.g. `recipedealer.worker.enabled=false`) go into `@SpringBootTest(properties = ...)` (see `IntegrationTest`).

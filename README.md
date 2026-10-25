@@ -34,9 +34,9 @@ All endpoints except `/v1/admin/**` need `Authorization: Bearer <device token>`.
 | `PUT /v1/captures/{captureId}` | Multipart: part `capture` (JSON) + one part per attachment named like `attachments[].name`. 201 new · 200 already stored (stored capture wins) · 400 · 413 |
 | `GET /v1/captures/{captureId}` | `status` (`accepted`, `processing`, `needs_decision`, `needs_attention`, `done`), `reason`, `message`, `recipes`, `candidates` (for `needs_decision`) |
 | `GET /v1/captures?status=needs_decision,needs_attention` | Inbox |
-| `PUT /v1/captures/{captureId}/extracted/{index}/resolution` | `{"action":"NEW"}` or `{"action":"UPDATE","recipeId":"..."}`; idempotent |
+| `PUT /v1/captures/{captureId}/extracted/{index}/resolution` | `{"action":"NEW","tags":["meal:dinner"]}` (tags optional) or `{"action":"UPDATE","recipeId":"..."}`; idempotent |
 | `GET /v1/recipes/candidates?title=&url=` | Possible matches: exact canonical URL (score 1.0), then similar titles |
-| `GET /v1/recipes?updatedSince=&cursor=&limit=` | Sync feed: `{items, nextCursor, hasMore}`; items carry head content or are tombstones (`deleted`, `mergedInto`) |
+| `GET /v1/recipes?updatedSince=&cursor=&limit=` | Sync feed: `{items, nextCursor, hasMore}`; items carry head content and `tags`, or are tombstones (`deleted`, `mergedInto`) |
 | `GET /v1/recipes/search?q=` | Title and ingredient search, tolerant to missing diacritics and typos |
 | `GET /v1/recipes/{id}` | Head revision; `ETag` = head revision id; `lock` while someone edits; 410 if deleted/merged |
 | `GET /v1/recipes/{id}/revisions` | All revisions, newest first (non-head revisions newer than the head are proposals) |
@@ -45,6 +45,10 @@ All endpoints except `/v1/admin/**` need `Authorization: Bearer <device token>`.
 | `DELETE /v1/recipes/{id}/lock/{lockId}` | Cancel editing |
 | `POST /v1/recipes/{id}/revisions` | Headers `Lock-Id`, `If-Match: "<headRevisionId>"`, body = recipe DTO. 201 · 409 lock · 412 head changed · 428 no `If-Match` |
 | `DELETE /v1/recipes/{id}` | Soft delete (needs `Lock-Id`); tombstone in the sync feed |
+| `GET /v1/tags` | Tag catalog in the user's order: `{categories: [{name, title, tags: [{id, name, title, recipeCount}]}]}`; tag id = `category:tag` |
+| `POST /v1/tags/categories`, `PATCH`/`DELETE /v1/tags/categories/{category}` | `{name?, title, position?}` (name derived from the title when missing); rename cascades, delete drops its tags. 201/200 with the whole catalog · 409 `tag_exists` |
+| `POST /v1/tags/categories/{category}/tags`, `PATCH`/`DELETE …/tags/{tag}` | `{name?, title, category?, position?}` (`category` moves the tag). Answers with the whole catalog |
+| `PUT /v1/recipes/{id}/tags` | `{"tags": ["meal:dinner", …]}` replaces the recipe's tags (no lock, no revision); 400 `unknown_tag` · 410 |
 | `GET /v1/blobs/{sha256}` | Blob content, cacheable forever |
 | `GET /v1/health` | `{"status":"ok"}` with a valid token |
 | `POST /v1/admin/enrollments` | HTTP Basic (admin). `{"userName","deviceName"}` → 201 `{token, userId, deviceId}` (token shown once) |

@@ -31,6 +31,12 @@ public class RecipeQueryService {
     public static final int SEARCH_LIMIT = 30;
     /** Lower than the pg_trgm default (0.6) so that small typos still match. */
     public static final double WORD_SIMILARITY_THRESHOLD = 0.45;
+    /** Tag ids ({@code category:tag}) of recipe {@code r} in catalog order. */
+    private static final String TAGS = """
+            ARRAY(SELECT rt.category || ':' || rt.tag
+                  FROM recipe_tag rt JOIN tag t ON t.category = rt.category AND t.name = rt.tag
+                       JOIN tag_category c ON c.name = rt.category
+                  WHERE rt.recipe_id = r.id ORDER BY c.position, t.position) AS tags""";
 
     private final JdbcClient jdbc;
     private final JsonMapper jsonMapper;
@@ -42,8 +48,8 @@ public class RecipeQueryService {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record RecipeView(UUID recipeId, UUID headRevisionId, String origin, boolean needsReview, JsonNode recipe,
-                             String sourceSummary, String thumbnailBlob, List<String> urls, Instant createdAt,
-                             Instant updatedAt, LockInfo lock) {
+                             String sourceSummary, String thumbnailBlob, List<String> urls, List<String> tags,
+                             Instant createdAt, Instant updatedAt, LockInfo lock) {
     }
 
     /** The active edit lease, if someone is editing. */
@@ -59,7 +65,8 @@ public class RecipeQueryService {
     /** A changed recipe with its head content, or a tombstone ({@code deleted} or {@code mergedInto}, no content). */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record SyncItem(UUID recipeId, Instant updatedAt, boolean deleted, UUID mergedInto, UUID headRevisionId,
-                           Boolean needsReview, JsonNode recipe, String sourceSummary, String thumbnailBlob) {
+                           Boolean needsReview, JsonNode recipe, String sourceSummary, String thumbnailBlob,
+                           List<String> tags) {
     }
 
     /** {@code nextCursor} resumes after the last item (keep it for the next sync); {@code hasMore} asks for another page now. */
@@ -86,18 +93,18 @@ public class RecipeQueryService {
                         SELECT r.id, r.head_revision_id, h.origin, h.needs_review, h.content, r.source_summary,
                                r.thumbnail_blob, r.created_at, r.updated_at,
                                ARRAY(SELECT k.value FROM recipe_key k WHERE k.recipe_id = r.id AND k.kind = 'CANONICAL_URL'
-                                     ORDER BY k.created_at) AS urls,
+                                     ORDER BY k.created_at) AS urls, %s,
                                u.name || ' (' || d.device_name || ')' AS locked_by, l.expires_at AS lock_expires_at
                         FROM recipe r JOIN recipe_revision h ON h.id = r.head_revision_id
                              LEFT JOIN recipe_lock l ON l.recipe_id = r.id AND l.expires_at >= now()
                              LEFT JOIN app_user u ON u.id = l.user_id
                              LEFT JOIN device_token d ON d.id = l.device_id
-                        WHERE r.id = :id""")
+                        WHERE r.id = :id""".formatted(TAGS))
                 .param("id", recipeId)
                 .query((rs, n) -> new RecipeView(Jdbc.uuid(rs, "id"), Jdbc.uuid(rs, "head_revision_id"),
                         rs.getString("origin"), rs.getBoolean("needs_review"), json(rs, "content"),
                         rs.getString("source_summary"), rs.getString("thumbnail_blob"),
-                        List.of((String[]) rs.getArray("urls").getArray()), Jdbc.instant(rs, "created_at"),
+                        strings(rs, "urls"), strings(rs, "tags"), Jdbc.instant(rs, "created_at"),
                         Jdbc.instant(rs, "updated_at"), rs.getString("locked_by") == null ? null
                                 : new LockInfo(rs.getString("locked_by"), Jdbc.instant(rs, "lock_expires_at"))))
                 .single();
@@ -140,11 +147,11 @@ public class RecipeQueryService {
         }
         List<SyncItem> items = jdbc.sql("""
                         SELECT r.id, r.updated_at, r.deleted_at IS NOT NULL AS deleted, r.merged_into, r.head_revision_id,
-                               h.needs_review, h.content, r.source_summary, r.thumbnail_blob
+                               h.needs_review, h.content, r.source_summary, r.thumbnail_blob, %s
                         FROM recipe r JOIN recipe_revision h ON h.id = r.head_revision_id
                         WHERE (r.updated_at, r.id) > (:afterTime, :afterId)
                         ORDER BY r.updated_at, r.id
-                        LIMIT :limit""")
+                        LIMIT :limit""".formatted(TAGS))
                 .param("afterTime", java.time.OffsetDateTime.ofInstant(afterTime, java.time.ZoneOffset.UTC))
                 .param("afterId", afterId)
                 .param("limit", pageSize + 1)
@@ -186,7 +193,11 @@ public class RecipeQueryService {
         return new SyncItem(Jdbc.uuid(rs, "id"), Jdbc.instant(rs, "updated_at"), deleted, mergedInto,
                 tombstone ? null : Jdbc.uuid(rs, "head_revision_id"), tombstone ? null : rs.getBoolean("needs_review"),
                 tombstone ? null : json(rs, "content"), tombstone ? null : rs.getString("source_summary"),
-                tombstone ? null : rs.getString("thumbnail_blob"));
+                tombstone ? null : rs.getString("thumbnail_blob"), tombstone ? null : strings(rs, "tags"));
+    }
+
+    private static List<String> strings(ResultSet rs, String column) throws SQLException {
+        return List.of((String[]) rs.getArray(column).getArray());
     }
 
     private JsonNode json(ResultSet rs, String column) throws SQLException {

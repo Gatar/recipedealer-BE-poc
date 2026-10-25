@@ -62,13 +62,14 @@ public class CaptureController {
         return queries.inbox(parseStatuses(status));
     }
 
-    public record ResolutionRequest(Action action, UUID recipeId) {
+    /** {@code tags}: tag ids for the new recipe (NEW only). */
+    public record ResolutionRequest(Action action, UUID recipeId, List<String> tags) {
     }
 
     @PutMapping("/{captureId}/extracted/{index}/resolution")
     public CaptureView resolve(@PathVariable UUID captureId, @PathVariable int index,
                                @RequestBody ResolutionRequest request, @AuthenticationPrincipal DevicePrincipal device) {
-        resolutions.request(captureId, index, request.action(), request.recipeId(), device);
+        resolutions.request(captureId, index, request.action(), request.recipeId(), request.tags(), device);
         return queries.view(captureId);
     }
 

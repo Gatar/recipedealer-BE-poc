@@ -24,3 +24,5 @@ server:
 recipedealer:
   storage:
     blob-dir: ${BLOB_DIR:./data/blobs}
+  backup:
+    dir: ${BACKUP_DIR:./data/backups}

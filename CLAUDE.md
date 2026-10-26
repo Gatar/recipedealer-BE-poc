@@ -9,6 +9,8 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Server-generated IDs are UUIDv7; `captureId` comes from the phone.
 - All time comparisons (locks, jobs) use the database clock (`now()`).
 - Pin library and image versions; check current stable versions instead of relying on memory.
+- API documentation: `docs/api.md`, one `### METHOD /path` heading per endpoint, spelled like the Spring mapping.
+  Update it in the same commit as any API change; `ApiDocumentationTest` fails on missing or extra endpoints.
 
 ## Decisions (agreed 2026-10-21)
 - Versions: Spring Boot 4.1.1 (manages Flyway, Testcontainers 2.x, JUnit 6, Jackson 3), PostgreSQL 18.6,
@@ -23,6 +25,13 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - `DELETE /v1/recipes/{id}` (soft delete, tombstone in the sync feed) is in scope.
 - Nightly `pg_dump` at 01:30 server time via host cron; keep the last 7 dumps.
 - Upload limits: 25 MiB per file, 50 MiB per request (Spring "MB" = MiB, Caddy `50MiB`).
+
+## Backups (agreed 2026-10-26)
+- On request through the admin API: ZIP with `pg_dump` + blobs + manifest in `/srv/recipedealer/backups`, kept until
+  deleted. The app image carries `postgresql-client-18` from PGDG, pinned to the postgres image's version
+  (`18.6-1.pgdg24.04+2`); bump both together. Tests dump inside the Testcontainers container instead.
+- Restore only on the server (`deploy/restore.sh`), never through the API; it saves a pre-restore dump first.
+- Later option, not decided: off-site copies (restic to a Hetzner Storage Box / Object Storage).
 
 ## Tags (agreed 2026-10-25)
 - Two levels `category:tag`; each level has a `name` (stable readable id, `[a-z0-9-]`, e.g. `meal:breakfast`) and

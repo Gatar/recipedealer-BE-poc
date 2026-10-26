@@ -27,36 +27,12 @@ Flyway, JUnit + Testcontainers. Deployed with Docker Compose (app, PostgreSQL, C
 
 ## API
 
-All endpoints except `/v1/admin/**` need `Authorization: Bearer <device token>`. Errors are
-`{"error": "...", "details": ["..."]}`.
+The full reference is [`docs/api.md`](docs/api.md): every endpoint with its request, responses and error codes.
+`ApiDocumentationTest` fails the build when the code and that file list different endpoints.
 
-| Method & path | Purpose |
-|---|---|
-| `PUT /v1/captures/{captureId}` | Multipart: part `capture` (JSON) + one part per attachment named like `attachments[].name`. 201 new · 200 already stored (stored capture wins) · 400 · 413 |
-| `GET /v1/captures/{captureId}` | `status` (`accepted`, `processing`, `needs_decision`, `needs_attention`, `done`), `reason`, `message`, `recipes`, `candidates` (for `needs_decision`) |
-| `GET /v1/captures?status=needs_decision,needs_attention` | Inbox |
-| `PUT /v1/captures/{captureId}/extracted/{index}/resolution` | `{"action":"NEW","tags":["meal:dinner"]}` (tags optional) or `{"action":"UPDATE","recipeId":"..."}`; idempotent |
-| `GET /v1/recipes/candidates?title=&url=` | Possible matches: exact canonical URL (score 1.0), then similar titles |
-| `GET /v1/recipes?updatedSince=&cursor=&limit=` | Sync feed: `{items, nextCursor, hasMore}`; items carry head content and `tags`, or are tombstones (`deleted`, `mergedInto`) |
-| `GET /v1/recipes/search?q=` | Title and ingredient search, tolerant to missing diacritics and typos |
-| `GET /v1/recipes/{id}` | Head revision; `ETag` = head revision id; `lock` while someone edits; 410 if deleted/merged |
-| `GET /v1/recipes/{id}/revisions` | All revisions, newest first (non-head revisions newer than the head are proposals) |
-| `POST /v1/recipes/{id}/lock` | 201 `{lockId, expiresAt}` · 409 `{lockedBy, expiresAt}` |
-| `PUT /v1/recipes/{id}/lock/{lockId}` | Heartbeat (+5 min; send every 2 min) |
-| `DELETE /v1/recipes/{id}/lock/{lockId}` | Cancel editing |
-| `POST /v1/recipes/{id}/revisions` | Headers `Lock-Id`, `If-Match: "<headRevisionId>"`, body = recipe DTO. 201 new head (also unchanged content over a head that `needsReview`: confirms it) · 200 unchanged content · 409 lock · 412 head changed · 428 no `If-Match` |
-| `DELETE /v1/recipes/{id}` | Soft delete (needs `Lock-Id`); tombstone in the sync feed |
-| `GET /v1/tags` | Tag catalog in the user's order: `{categories: [{name, title, tags: [{id, name, title, recipeCount}]}]}`; tag id = `category:tag` |
-| `POST /v1/tags/categories`, `PATCH`/`DELETE /v1/tags/categories/{category}` | `{name?, title, position?}` (name derived from the title when missing); rename cascades, delete drops its tags. 200 with the whole catalog · 409 `tag_exists` · 404 `not_found` |
-| `POST /v1/tags/categories/{category}/tags`, `PATCH`/`DELETE …/tags/{tag}` | `{name?, title, category?, position?}` (`category` moves the tag). 200 with the whole catalog · 409 `tag_exists` · 404 `not_found` |
-| `PUT /v1/recipes/{id}/tags` | `{"tags": ["meal:dinner", …]}` replaces the recipe's tags (no lock, no revision); 400 `unknown_tag` · 410 |
-| `GET /v1/blobs/{sha256}` | Blob content, cacheable forever |
-| `GET /v1/health` | `{"status":"ok"}` with a valid token |
-| `POST /v1/admin/enrollments` | HTTP Basic (admin). `{"userName","deviceName"}` → 201 `{token, userId, deviceId}` (token shown once) |
-| `GET /v1/admin/devices`, `DELETE /v1/admin/devices/{deviceId}` | List devices (`lastUsedAt`), revoke |
-
-After 5 failed admin logins within an hour, all admin endpoints answer 429 until the limit refills
-(one attempt every 12 minutes).
+In short: devices authenticate with `Authorization: Bearer <device token>` and use `/v1/captures`, `/v1/recipes`,
+`/v1/tags`, `/v1/blobs` and `/v1/health`. The admin uses HTTP Basic on `/v1/admin/**` (enrollments, devices,
+backups). Errors are `{"error": "...", "details": ["..."]}`.
 
 ## Local development
 
@@ -79,7 +55,7 @@ export RECIPEDEALER_ADMIN_PASSWORD_HASH="$(docker run --rm caddy:2.11.7 caddy ha
 ./mvnw spring-boot:run             # http://localhost:8080, blobs in ./data/blobs
 ```
 
-Configuration (environment variables): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `BLOB_DIR`,
+Configuration (environment variables): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `BLOB_DIR`, `BACKUP_DIR`,
 `RECIPEDEALER_ADMIN_USERNAME`, `RECIPEDEALER_ADMIN_PASSWORD_HASH` (bcrypt). The admin credentials never live in
 the database; without them the admin endpoints answer 401.
 
@@ -93,7 +69,8 @@ Backups cover:
 | `/srv/recipedealer/app` | `compose.yaml`, `Caddyfile`, `Dockerfile`, JAR, scripts, `.env` (secrets) |
 | `/srv/recipedealer/postgres` | PostgreSQL data |
 | `/srv/recipedealer/blobs` | Capture bodies and attachments (content-addressed) |
-| `/srv/recipedealer/dumps` | Nightly `pg_dump` files (last 7) |
+| `/srv/recipedealer/dumps` | Nightly `pg_dump` files (last 7), `pre-restore-*.dump` written by `restore.sh` |
+| `/srv/recipedealer/backups` | On-request backups (`POST /v1/admin/backups`), kept until deleted |
 | `/srv/recipedealer/caddy` | Caddy certificates and ACME account |
 
 GitHub Actions (`.github/workflows/ci.yml`) builds and tests on every push. On `main` it copies the JAR and the
@@ -105,8 +82,8 @@ small application image itself (no registry).
 1. **Server directories and secrets** (as root on the server):
 
    ```bash
-   mkdir -p /srv/recipedealer/{app,postgres,blobs,dumps,caddy}
-   chown 10001:10001 /srv/recipedealer/blobs      # the app container runs as uid 10001
+   mkdir -p /srv/recipedealer/{app,postgres,blobs,backups,dumps,caddy}
+   chown 10001:10001 /srv/recipedealer/{blobs,backups}   # the app container runs as uid 10001
    ```
 
    Create `/srv/recipedealer/app/.env` from [`deploy/env.example`](deploy/env.example) with `chmod 600`.
@@ -166,20 +143,34 @@ last 7 dumps, and pings `DEADMAN_URL` from `.env` if set (e.g. a healthchecks.io
 `/var/log/recipedealer-backup.log`. Blobs are not in the dump; they are files under `/srv/recipedealer/blobs`,
 covered by the Hetzner server backup. Off-site backup is out of scope for v1.
 
-### Restore from a dump
+### Backups on request
+
+`POST /v1/admin/backups` writes one ZIP to `/srv/recipedealer/backups` with `database.dump` (`pg_dump --format=custom`,
+taken by the app with the PostgreSQL 18 client in its image), `blobs/` (all blobs, same layout as the blob store) and
+`manifest.json` (time, label, last Flyway migration, counts, SHA-256 of the dump). The dump is taken first, then the
+blobs are copied, so the archive is consistent. Backups are never deleted automatically.
 
 ```bash
-cd /srv/recipedealer/app
-docker compose stop app
-docker compose exec -T postgres dropdb -U recipedealer --force recipedealer
-docker compose exec -T postgres createdb -U recipedealer -O recipedealer recipedealer
-docker compose exec -T postgres pg_restore -U recipedealer -d recipedealer --no-owner --exit-on-error \
-  /dumps/recipedealer-<timestamp>.dump
-docker compose start app
+curl -u admin:'your-admin-password' -H 'Content-Type: application/json' -d '{"label":"core"}' \
+  https://<server>/v1/admin/backups
+curl -u admin:'your-admin-password' https://<server>/v1/admin/backups
+curl -u admin:'your-admin-password' -OJ https://<server>/v1/admin/backups/recipedealer-<timestamp>-core.zip
 ```
 
-Restore `/srv/recipedealer/blobs` from the Hetzner backup of the same night if blobs were lost too (a blob
-directory newer than the dump is harmless: extra blobs are just unreferenced).
+### Restore
+
+`/srv/recipedealer/app/restore.sh` (as root on the server) replaces the whole database with a backup ZIP (a path or a
+name in `/srv/recipedealer/backups`) or a bare dump file (e.g. a nightly dump), and copies the backup's missing blobs.
+It asks for confirmation (`--yes` skips it) and first saves the current database to
+`/srv/recipedealer/dumps/pre-restore-<timestamp>.dump`; restoring that file undoes the restore.
+
+```bash
+/srv/recipedealer/app/restore.sh recipedealer-<timestamp>-core.zip
+/srv/recipedealer/app/restore.sh /srv/recipedealer/dumps/recipedealer-<timestamp>.dump
+```
+
+A nightly dump has no blobs: restore `/srv/recipedealer/blobs` from the Hetzner backup of the same night if blobs
+were lost too (blobs newer than the dump are harmless: they are just unreferenced).
 
 ### Operations
 

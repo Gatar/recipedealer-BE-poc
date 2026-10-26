@@ -71,12 +71,13 @@ jobs:
       - name: Copy JAR and deployment files
         run: |
           ssh server "mkdir -p $APP_DIR"
-          scp target/recipedealer.jar Dockerfile compose.yaml Caddyfile deploy/backup.sh deploy/wait-healthy.sh \
-            deploy/recipedealer-backup.cron \
+          scp target/recipedealer.jar Dockerfile compose.yaml Caddyfile deploy/backup.sh deploy/restore.sh \
+            deploy/wait-healthy.sh deploy/recipedealer-backup.cron \
             server:$APP_DIR/
       - name: Build image and restart
         run: |
-          ssh server "cd $APP_DIR && chmod +x backup.sh wait-healthy.sh \
+          ssh server "cd $APP_DIR && chmod +x backup.sh restore.sh wait-healthy.sh \
+            && install -d -o 10001 -g 10001 /srv/recipedealer/backups \
             && install -m 644 recipedealer-backup.cron /etc/cron.d/recipedealer-backup \
             && docker compose up -d --build --remove-orphans && docker image prune -f"
       - name: Wait until the app answers

@@ -32,10 +32,13 @@ services:
       DB_USER: recipedealer
       DB_PASSWORD: ${DB_PASSWORD}
       BLOB_DIR: /data/blobs
+      BACKUP_DIR: /data/backups
       RECIPEDEALER_ADMIN_USERNAME: ${ADMIN_USERNAME:?ADMIN_USERNAME must be set in .env}
       RECIPEDEALER_ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH must be set in .env}
     volumes:
       - ${DATA_DIR:-/srv/recipedealer}/blobs:/data/blobs
+      # On-request backups (POST /v1/admin/backups); owned by uid 10001 like blobs.
+      - ${DATA_DIR:-/srv/recipedealer}/backups:/data/backups
     expose:
       - "8080"
 

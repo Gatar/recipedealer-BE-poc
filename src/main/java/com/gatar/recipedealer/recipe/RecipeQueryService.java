@@ -4,6 +4,8 @@ import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.List;
@@ -132,6 +134,11 @@ public class RecipeQueryService {
     /**
      * Sync feed ordered by {@code (updated_at, id)}. Start with {@code updatedSince} (inclusive, or nothing for a full
      * sync) and continue with {@code nextCursor} until it is null; keep the last cursor for the next sync.
+     * <p>
+     * Writers set {@code recipe.updated_at = now()}, the start time of their transaction, so a transaction that
+     * commits later can still write an older {@code updated_at} than one already sent. The feed therefore stops before
+     * the start of the oldest transaction that is still open; such changes come in a later sync instead of being
+     * skipped by the cursor.
      */
     public SyncPage sync(Instant updatedSince, String cursor, Integer limit) {
         int pageSize = limit == null ? DEFAULT_PAGE_SIZE : Math.clamp(limit, 1, MAX_PAGE_SIZE);
@@ -145,15 +152,24 @@ public class RecipeQueryService {
             afterTime = updatedSince == null ? Instant.EPOCH : updatedSince.minusNanos(1000);
             afterId = new UUID(-1L, -1L);
         }
+        // A separate statement before the feed query (READ COMMITTED: the feed query takes a newer snapshot), so every
+        // transaction that started before the horizon and is no longer listed has committed and is visible below.
+        OffsetDateTime horizon = jdbc.sql("""
+                        SELECT least(clock_timestamp(), min(xact_start)) FROM pg_stat_activity
+                        WHERE datname = current_database() AND backend_type = 'client backend'
+                          AND pid <> pg_backend_pid() AND xact_start IS NOT NULL""")
+                .query(OffsetDateTime.class)
+                .single();
         List<SyncItem> items = jdbc.sql("""
                         SELECT r.id, r.updated_at, r.deleted_at IS NOT NULL AS deleted, r.merged_into, r.head_revision_id,
                                h.needs_review, h.content, r.source_summary, r.thumbnail_blob, %s
                         FROM recipe r JOIN recipe_revision h ON h.id = r.head_revision_id
-                        WHERE (r.updated_at, r.id) > (:afterTime, :afterId)
+                        WHERE (r.updated_at, r.id) > (:afterTime, :afterId) AND r.updated_at < :horizon
                         ORDER BY r.updated_at, r.id
                         LIMIT :limit""".formatted(TAGS))
-                .param("afterTime", java.time.OffsetDateTime.ofInstant(afterTime, java.time.ZoneOffset.UTC))
+                .param("afterTime", OffsetDateTime.ofInstant(afterTime, ZoneOffset.UTC))
                 .param("afterId", afterId)
+                .param("horizon", horizon)
                 .param("limit", pageSize + 1)
                 .query((rs, n) -> syncItem(rs))
                 .list();

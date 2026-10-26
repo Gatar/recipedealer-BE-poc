@@ -33,9 +33,12 @@ public class RevisionService {
         this.recipes = recipes;
     }
 
-    /** Revision content and its source. {@code runId} for machine revisions, {@code userId} for user revisions. */
-    public record Content(JsonNode recipe, Origin origin, UUID runId, UUID captureId, UUID userId, UUID deviceId,
-                          boolean needsReview) {
+    /**
+     * Revision content and its source. {@code schemaVersion}: the contract version {@code recipe} follows;
+     * {@code runId} for machine revisions, {@code userId} for user revisions.
+     */
+    public record Content(JsonNode recipe, int schemaVersion, Origin origin, UUID runId, UUID captureId, UUID userId,
+                          UUID deviceId, boolean needsReview) {
     }
 
     public record Outcome(UUID recipeId, UUID revisionId, boolean created, boolean headMoved) {
@@ -77,8 +80,8 @@ public class RevisionService {
     private UUID insert(UUID recipeId, UUID parentId, Content content, String hash) {
         UUID revisionId = Ids.newId();
         recipes.insertRevision(new RecipeRepository.NewRevision(revisionId, recipeId, parentId, content.origin(),
-                content.runId(), content.captureId(), content.userId(), content.deviceId(), content.recipe(), hash,
-                content.needsReview()));
+                content.runId(), content.captureId(), content.userId(), content.deviceId(), content.schemaVersion(),
+                content.recipe(), hash, content.needsReview()));
         return revisionId;
     }
 }

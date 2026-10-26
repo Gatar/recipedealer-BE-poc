@@ -21,6 +21,9 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class CaptureSchemaValidator {
 
+    /** The contract version that {@link #validateRecipe} checks user edits against. */
+    public static final int RECIPE_SCHEMA_VERSION = 1;
+
     private final JsonMapper jsonMapper;
     private final Schema schemaV1;
     private final Schema recipeSchema;

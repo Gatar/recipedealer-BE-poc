@@ -123,8 +123,8 @@ public class ResolutionService {
 
     /** @return false if the UPDATE target disappeared and the user has to decide again */
     private boolean applyDecision(UUID captureId, UUID runId, StoredCandidate candidate, Resolution resolution) {
-        var content = new RevisionService.Content(candidate.content(), Origin.MACHINE, runId, captureId,
-                resolution.userId(), resolution.deviceId(), candidate.needsReview());
+        var content = new RevisionService.Content(candidate.content(), candidate.schemaVersion(), Origin.MACHINE, runId,
+                captureId, resolution.userId(), resolution.deviceId(), candidate.needsReview());
         RevisionService.Outcome outcome;
         List<String> messages = new ArrayList<>();
         if (resolution.action() == Action.NEW) {
@@ -149,8 +149,8 @@ public class ResolutionService {
 
     private void applyAutomatic(UUID captureId, UUID runId, StoredCandidate candidate, UUID recipeId) {
         recipes.liveTarget(recipeId).ifPresent(target -> {
-            var content = new RevisionService.Content(candidate.content(), Origin.MACHINE, runId, captureId, null, null,
-                    candidate.needsReview());
+            var content = new RevisionService.Content(candidate.content(), candidate.schemaVersion(), Origin.MACHINE,
+                    runId, captureId, null, null, candidate.needsReview());
             revisions.addRevision(target, content, false);
             attachKeys(captureId, candidate, target);
         });

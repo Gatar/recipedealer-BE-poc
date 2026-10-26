@@ -39,24 +39,21 @@ jobs:
       SSH_USER: ${{ secrets.SSH_USER || 'root' }}
       APP_DIR: /srv/recipedealer/app
     steps:
+      # A deployment that cannot run fails the pipeline instead of passing silently.
       - name: Check deploy configuration
-        id: config
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          if [ -z "$SSH_HOST" ]; then
-            echo "::notice::Deployment skipped: set the SSH_HOST and SSH_PRIVATE_KEY secrets to enable it."
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_PRIVATE_KEY" ]; then
+            echo "::error::Cannot deploy: set the SSH_HOST and SSH_PRIVATE_KEY Actions secrets."
+            exit 1
           fi
       - uses: actions/checkout@v7
-        if: steps.config.outputs.enabled == 'true'
       - uses: actions/download-artifact@v8
-        if: steps.config.outputs.enabled == 'true'
         with:
           name: recipedealer-jar
           path: target
       - name: Configure SSH
-        if: steps.config.outputs.enabled == 'true'
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
@@ -72,18 +69,15 @@ jobs:
           printf 'Host server\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  IdentitiesOnly yes\n' \
             "$SSH_HOST" "$SSH_USER" > ~/.ssh/config
       - name: Copy JAR and deployment files
-        if: steps.config.outputs.enabled == 'true'
         run: |
           ssh server "mkdir -p $APP_DIR"
           scp target/recipedealer.jar Dockerfile compose.yaml Caddyfile deploy/backup.sh deploy/wait-healthy.sh \
             deploy/recipedealer-backup.cron \
             server:$APP_DIR/
       - name: Build image and restart
-        if: steps.config.outputs.enabled == 'true'
         run: |
           ssh server "cd $APP_DIR && chmod +x backup.sh wait-healthy.sh \
             && install -m 644 recipedealer-backup.cron /etc/cron.d/recipedealer-backup \
             && docker compose up -d --build --remove-orphans && docker image prune -f"
       - name: Wait until the app answers
-        if: steps.config.outputs.enabled == 'true'
         run: ssh server "$APP_DIR/wait-healthy.sh"

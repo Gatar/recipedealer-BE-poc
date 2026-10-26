@@ -30,7 +30,8 @@ public class RecipeRepository {
     }
 
     public record NewRevision(UUID id, UUID recipeId, UUID parentId, Origin origin, UUID runId, UUID captureId,
-                              UUID userId, UUID deviceId, JsonNode content, String contentHash, boolean needsReview) {
+                              UUID userId, UUID deviceId, int schemaVersion, JsonNode content, String contentHash,
+                              boolean needsReview) {
     }
 
     public void insertRecipe(UUID id) {
@@ -55,9 +56,9 @@ public class RecipeRepository {
     public void insertRevision(NewRevision revision) {
         jdbc.sql("""
                         INSERT INTO recipe_revision (id, recipe_id, parent_id, origin, run_id, capture_id, user_id, device_id,
-                                                     content, content_hash, needs_review)
+                                                     schema_version, content, content_hash, needs_review)
                         VALUES (:id, :recipeId, :parentId, :origin, :runId, :captureId, :userId, :deviceId,
-                                CAST(:content AS jsonb), :hash, :needsReview)""")
+                                :schemaVersion, CAST(:content AS jsonb), :hash, :needsReview)""")
                 .param("id", revision.id())
                 .param("recipeId", revision.recipeId())
                 .param("parentId", revision.parentId())
@@ -66,6 +67,7 @@ public class RecipeRepository {
                 .param("captureId", revision.captureId())
                 .param("userId", revision.userId())
                 .param("deviceId", revision.deviceId())
+                .param("schemaVersion", revision.schemaVersion())
                 .param("content", jsonMapper.writeValueAsString(revision.content()))
                 .param("hash", revision.contentHash())
                 .param("needsReview", revision.needsReview())

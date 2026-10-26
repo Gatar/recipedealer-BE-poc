@@ -2,6 +2,7 @@ package com.gatar.recipedealer.recipe;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -20,6 +21,7 @@ import com.gatar.recipedealer.TestCaptures;
 import com.gatar.recipedealer.processing.JobWorker;
 import com.jayway.jsonpath.JsonPath;
 
+import javax.sql.DataSource;
 import tools.jackson.databind.node.ObjectNode;
 
 @IntegrationTest
@@ -33,6 +35,9 @@ class RecipeReadSyncSearchTest {
 
     @Autowired
     JobWorker worker;
+
+    @Autowired
+    DataSource dataSource;
 
     String token;
     String suffix;
@@ -72,6 +77,8 @@ class RecipeReadSyncSearchTest {
         assertThat(JsonPath.<String>read(body, "$.recipe.title")).isEqualTo("Schabowy " + suffix);
         assertThat(JsonPath.<String>read(body, "$.recipe.ingredientGroups[0].name")).isEqualTo("Jabłka");
         assertThat(JsonPath.<String>read(body, "$.origin")).isEqualTo("MACHINE");
+        assertThat(jdbc.sql("SELECT schema_version FROM recipe_revision WHERE id = :id").param("id", head)
+                .query(Integer.class).single()).isEqualTo(1);
         assertThat(JsonPath.<List<String>>read(body, "$.urls")).containsExactly("https://read-" + suffix + ".pl/schabowy");
 
         assertThat(mvc.get().uri("/v1/recipes/{id}", recipeId).header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token))
@@ -151,6 +158,37 @@ class RecipeReadSyncSearchTest {
         String full = TestAuth.body(get("/v1/recipes?cursor={cursor}&limit=500", before));
         assertThat(JsonPath.<List<String>>read(full, "$.items[*].recipeId")).contains(a.toString(), c.toString());
         assertThat(get("/v1/recipes?cursor=garbage")).hasStatus(400);
+    }
+
+    @Test
+    void syncFeedWaitsForOpenTransactionsSoTheCursorSkipsNothing() throws Exception {
+        String since = jdbc.sql("SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")
+                .query(String.class).single();
+        UUID slow = newRecipe("open-tx-a", "Open tx A " + suffix);
+        String cursor;
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                // A writer that started first but commits last: its updated_at is older than the next recipe's.
+                try (var update = connection.prepareStatement("UPDATE recipe SET updated_at = now() WHERE id = ?")) {
+                    update.setObject(1, slow);
+                    update.executeUpdate();
+                }
+                UUID fast = newRecipe("open-tx-b", "Open tx B " + suffix);
+
+                String body = TestAuth.body(get("/v1/recipes?updatedSince={since}&limit=500", since));
+                assertThat(JsonPath.<List<String>>read(body, "$.items[*].recipeId"))
+                        .contains(slow.toString()).doesNotContain(fast.toString());
+                cursor = JsonPath.read(body, "$.nextCursor");
+                connection.commit();
+
+                String next = TestAuth.body(get("/v1/recipes?cursor={cursor}&limit=500", cursor));
+                assertThat(JsonPath.<List<String>>read(next, "$.items[*].recipeId"))
+                        .containsSubsequence(slow.toString(), fast.toString());
+            } finally {
+                connection.rollback();
+            }
+        }
     }
 
     @Test

@@ -49,7 +49,8 @@ public class RecipeEditService {
         }
         locks.consume(recipeId, lockId);
         requireHead(ifMatch, head.headRevisionId());
-        var content = new RevisionService.Content(recipe, Origin.USER, null, null, device.userId(), device.deviceId(), false);
+        var content = new RevisionService.Content(recipe, CaptureSchemaValidator.RECIPE_SCHEMA_VERSION, Origin.USER, null,
+                null, device.userId(), device.deviceId(), false);
         return revisions.addRevision(recipeId, content, true);
     }
 

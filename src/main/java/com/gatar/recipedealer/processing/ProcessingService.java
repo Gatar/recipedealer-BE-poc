@@ -82,8 +82,9 @@ public class ProcessingService {
         List<StoredCandidate> candidates = new ArrayList<>();
         for (int i = 0; i < extracted.size(); i++) {
             RecipeCandidate guarded = ProvenanceGuard.apply(capture, extracted.get(i));
-            candidates.add(new StoredCandidate(i, guarded.recipe(), RecipeContent.contentHash(guarded.recipe()),
-                    guarded.provenance(), ReviewPolicy.needsReview(guarded.recipe(), guarded.provenance()), keys));
+            candidates.add(new StoredCandidate(i, capture.schemaVersion(), guarded.recipe(),
+                    RecipeContent.contentHash(guarded.recipe()), guarded.provenance(),
+                    ReviewPolicy.needsReview(guarded.recipe(), guarded.provenance()), keys));
         }
         return candidates;
     }

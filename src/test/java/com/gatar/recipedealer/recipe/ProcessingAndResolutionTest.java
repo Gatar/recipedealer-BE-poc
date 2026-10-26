@@ -262,8 +262,8 @@ class ProcessingAndResolutionTest {
         UUID recipeId = resolveNew(captureId);
         ObjectNode edited = (ObjectNode) JsonMapper.builder().build().readTree(
                 "{\"title\": \"Gołąbki mamy " + suffix + "\", \"ingredientGroups\": [{\"items\": [\"kapusta\"]}]}");
-        UUID userRevision = tx.execute(s -> revisions.addRevision(recipeId, new RevisionService.Content(edited, Origin.USER,
-                null, null, jdbc.sql("SELECT user_id FROM capture WHERE id = :id").param("id", captureId).query(UUID.class).single(),
+        UUID userRevision = tx.execute(s -> revisions.addRevision(recipeId, new RevisionService.Content(edited, 1,
+                Origin.USER, null, null, jdbc.sql("SELECT user_id FROM capture WHERE id = :id").param("id", captureId).query(UUID.class).single(),
                 null, false), true).revisionId());
 
         jobs.enqueue(captureId);

@@ -80,11 +80,13 @@ public class ProcessingRepository {
 
     public void insertCandidate(UUID runId, StoredCandidate candidate) {
         jdbc.sql("""
-                        INSERT INTO recipe_candidate (run_id, idx, content, content_hash, provenance, needs_review, keys)
-                        VALUES (:runId, :idx, CAST(:content AS jsonb), :hash, CAST(:provenance AS jsonb), :needsReview,
-                                CAST(:keys AS jsonb))""")
+                        INSERT INTO recipe_candidate (run_id, idx, schema_version, content, content_hash, provenance,
+                                                      needs_review, keys)
+                        VALUES (:runId, :idx, :schemaVersion, CAST(:content AS jsonb), :hash, CAST(:provenance AS jsonb),
+                                :needsReview, CAST(:keys AS jsonb))""")
                 .param("runId", runId)
                 .param("idx", candidate.index())
+                .param("schemaVersion", candidate.schemaVersion())
                 .param("content", jsonMapper.writeValueAsString(candidate.content()))
                 .param("hash", candidate.contentHash())
                 .param("provenance", jsonMapper.writeValueAsString(candidate.provenance()))
@@ -106,9 +108,11 @@ public class ProcessingRepository {
     }
 
     public List<StoredCandidate> candidates(UUID runId) {
-        return jdbc.sql("SELECT idx, content, content_hash, provenance, needs_review, keys FROM recipe_candidate WHERE run_id = :id ORDER BY idx")
+        return jdbc.sql("""
+                        SELECT idx, schema_version, content, content_hash, provenance, needs_review, keys
+                        FROM recipe_candidate WHERE run_id = :id ORDER BY idx""")
                 .param("id", runId)
-                .query((rs, n) -> new StoredCandidate(rs.getInt("idx"),
+                .query((rs, n) -> new StoredCandidate(rs.getInt("idx"), rs.getInt("schema_version"),
                         (ObjectNode) jsonMapper.readTree(rs.getString("content")), rs.getString("content_hash"),
                         jsonMapper.readValue(rs.getString("provenance"), PROVENANCE), rs.getBoolean("needs_review"),
                         jsonMapper.readValue(rs.getString("keys"), KEYS)))

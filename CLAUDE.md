@@ -37,6 +37,11 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   (e.g. `recipedealer.worker.enabled=false`) go into `@SpringBootTest(properties = ...)` (see `IntegrationTest`).
 - MockMvc does not enforce multipart size limits; `UploadLimitsTest` uses real HTTP.
 - Tests share one database: use unique URLs/titles per test (see `TestCaptures.webCapture(id, url, title)`).
+- `recipe.updated_at` is always set to `now()` (or later) in the writing transaction: the sync feed only returns
+  changes older than the oldest open transaction (`RecipeQueryService.sync`), so a commit cannot land behind a
+  client's cursor. A transaction left open (e.g. `psql` idle in `BEGIN`) holds new changes back from the feed.
+- Candidates and revisions store the contract version of their content (`schema_version`); set it on every new
+  content source.
 
 ## Build & test
 - JDK 25 is on the PATH (Corretto); run `./mvnw` as is.

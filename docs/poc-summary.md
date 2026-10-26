@@ -94,5 +94,6 @@ To be revisited before real use:
 - Android: implement the API from `update-android-prompt.txt` (decisions first, then sync/detail, search, editing).
 - Decide on auto-NEW without candidates (finding 2) and on server-side thumbnails for web captures (finding 3).
 - Investigate the `heuristic` ingredients on kwestiasmaku.com (finding 4).
-- Make a skipped or misconfigured deploy fail the pipeline (finding 5).
+- ~~Make a skipped or misconfigured deploy fail the pipeline (finding 5).~~ Done: missing deploy secrets fail the
+  deploy job.
 - Optional: server setup script (finding 8), `DEADMAN_URL` for the nightly dump, test a restore from a dump.

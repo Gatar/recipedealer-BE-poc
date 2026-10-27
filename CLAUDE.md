@@ -38,7 +38,10 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   disabled) and `POST /v1/auth/login`; both return a new device token. Admin enrollment stays, without a password and
   beyond the limit.
 - At most `MAX_USERS` (10) users in total. Passwords: no rules, bcrypt, at most 72 bytes (rejected, not truncated).
-- Tokens do not expire; every login is a new device, earlier tokens stay until revoked.
+- Tokens do not expire. A device = user + device name (case ignored): logging in (or enrolling) again with the same
+  name replaces that device's token and keeps its id; a new name adds a device.
+- `DELETE /v1/admin/users/{userId}` is a soft delete (`deleted_at`), also for users with history: devices revoked,
+  locks released, name and limit slot freed; history keeps pointing at the old user row.
 - Users without a password (admin-enrolled) set one with `PUT /v1/me/password` and their token; changing it needs
   the current password.
 - Failed attempts: 5 per user name / 15 min, 50 in total / hour (in memory, reset on restart).

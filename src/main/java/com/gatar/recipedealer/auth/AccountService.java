@@ -63,13 +63,13 @@ public class AccountService {
         String hash = passwords.encode(checkedPassword(password));
         // Serializes registrations, so concurrent ones cannot exceed the limit.
         jdbc.sql("SELECT pg_advisory_xact_lock(hashtext('app_user_registration'))").query().singleRow();
-        long users = jdbc.sql("SELECT count(*) FROM app_user").query(Long.class).single();
+        long users = jdbc.sql("SELECT count(*) FROM app_user WHERE deleted_at IS NULL").query(Long.class).single();
         if (users >= registration.maxUsers()) {
             throw ApiException.conflict("user_limit_reached", "the limit of " + registration.maxUsers() + " users is reached");
         }
         UUID userId = jdbc.sql("""
                         INSERT INTO app_user (id, name, password_hash) VALUES (:id, :name, :hash)
-                        ON CONFLICT (lower(name)) DO NOTHING
+                        ON CONFLICT (lower(name)) WHERE deleted_at IS NULL DO NOTHING
                         RETURNING id""")
                 .param("id", Ids.newId())
                 .param("name", userName.strip())
@@ -80,11 +80,11 @@ public class AccountService {
         return session(tokens.issue(userId, deviceName), userName.strip());
     }
 
-    /** A new device token for the user; every login is a new device. */
+    /** A new token for the user's device with this name; it replaces the device's previous token. */
     public Session login(String userName, String password, String deviceName) {
         String key = "user:" + userName.strip().toLowerCase(Locale.ROOT);
         rateLimiter.check(key);
-        Optional<Account> account = account("lower(name) = lower(:name)", "name", userName.strip());
+        Optional<Account> account = account("lower(name) = lower(:name) AND deleted_at IS NULL", "name", userName.strip());
         String hash = account.map(Account::passwordHash).orElse(null);
         boolean valid = matches(password, hash != null ? hash : dummyHash) && hash != null;
         if (!valid) {

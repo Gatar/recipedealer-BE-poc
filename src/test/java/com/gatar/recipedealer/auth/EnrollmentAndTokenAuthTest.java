@@ -65,6 +65,19 @@ class EnrollmentAndTokenAuthTest {
     }
 
     @Test
+    void enrollingTheSameDeviceAgainReplacesItsToken() {
+        String user = "Device " + UUID.randomUUID().toString().substring(0, 8);
+        String first = json(TestAuth.enrollRequest(mvc, user, "kitchen"));
+        String second = json(TestAuth.enrollRequest(mvc, user, "Kitchen"));
+
+        assertThat((String) JsonPath.read(second, "$.deviceId")).isEqualTo(JsonPath.read(first, "$.deviceId"));
+        assertThat(mvc.get().uri("/v1/health").header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(JsonPath.read(first, "$.token"))))
+                .hasStatus(401);
+        assertThat(mvc.get().uri("/v1/health").header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(JsonPath.read(second, "$.token"))))
+                .hasStatusOk();
+    }
+
+    @Test
     void enrollmentValidatesBody() {
         assertThat(TestAuth.enrollRequest(mvc, " ", "phone")).hasStatus(400)
                 .bodyJson().extractingPath("$.error").isEqualTo("invalid_request");

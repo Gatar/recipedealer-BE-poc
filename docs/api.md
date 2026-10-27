@@ -105,8 +105,10 @@ for a ZIP whose manifest cannot be read.
 
 ## Accounts
 
-A user has a unique name (case is ignored) and a password; each registration or login is a new device with its own
-token. Passwords have no rules except: not empty, at most 72 bytes in UTF-8 (a bcrypt limit).
+A user has a unique name (case is ignored) and a password. A device is identified by its user and its name (case is
+ignored): registering or logging in on a new device name adds a device; logging in again with the same name keeps the
+device (and its history) and replaces its token, so the previous token stops working. Passwords have no rules
+except: not empty, at most 72 bytes in UTF-8 (a bcrypt limit).
 
 Rate limit for failed attempts (wrong password, wrong current password, wrong registration code):
 - 5 per user name within 15 minutes; failed registrations share one budget;
@@ -146,8 +148,9 @@ Responses:
 
 ### POST /v1/auth/login
 
-A new device token for an existing user, e.g. after reinstalling the app or on a new device. Earlier tokens stay
-valid until the admin revokes them. No token needed.
+A new device token for an existing user, e.g. after reinstalling the app or on a new device. With a device name the
+user already has, it replaces that device's token (and lifts a revocation); tokens of the user's other devices stay
+valid. No token needed.
 
 ```json
 {"userName": "Ania", "password": "…", "deviceName": "Pixel 9"}
@@ -155,7 +158,8 @@ valid until the admin revokes them. No token needed.
 
 - **201** Session.
 - **400** `invalid_request`: missing field.
-- **401** `invalid_credentials`: same answer for a wrong password, an unknown user and a user without a password.
+- **401** `invalid_credentials`: same answer for a wrong password, an unknown or deleted user and a user without a
+  password.
 - **429** `too_many_requests`.
 
 ### PUT /v1/me/password
@@ -425,18 +429,29 @@ HTTP Basic with the admin credentials; see Conventions for the rate limit.
 
 Body `{"userName": "Ania", "deviceName": "Pixel 9"}` (each 1–100 characters). The user is created when the name is
 new; shared devices are users too (e.g. `"userName": "Tablet"`). It works without a password and beyond the user
-limit; the user can set a password later with `PUT /v1/me/password`.
+limit; the user can set a password later with `PUT /v1/me/password`. A device name the user already has replaces that
+device's token, as a login does.
 
 - **201** `{token, userId, deviceId}`. The token is shown only this once.
 - **400** `invalid_request`.
 
 ### GET /v1/admin/devices
 
-**200** `[{deviceId, deviceName, userId, userName, createdAt, lastUsedAt, revokedAt}]`.
+**200** `[{deviceId, deviceName, userId, userName, createdAt, lastUsedAt, revokedAt}]`: devices of users that are not
+deleted.
 
 ### DELETE /v1/admin/devices/{deviceId}
 
-Revokes the device token. **204** · **404**.
+Revokes the device token; the user can log in on that device again. **204** · **404**.
+
+### DELETE /v1/admin/users/{userId}
+
+Deletes a user, also one with history:
+- all its device tokens are revoked, its password is removed and its edit locks are released;
+- its captures, decisions and revisions stay and still show its name;
+- the name and the slot in the user limit are free, so the same name can register again as a new user.
+
+**204**, also when already deleted · **404**.
 
 ### POST /v1/admin/backups
 

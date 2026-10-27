@@ -54,4 +54,13 @@ public class AdminController {
             throw new NotFoundException("device " + deviceId + " not found");
         }
     }
+
+    /** Soft delete: the user's history stays, its devices stop working, its name can be registered again. */
+    @DeleteMapping("/users/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteUser(@PathVariable UUID userId) {
+        if (!tokens.deleteUser(userId)) {
+            throw new NotFoundException("user " + userId + " not found");
+        }
+    }
 }

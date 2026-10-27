@@ -3,6 +3,7 @@ package com.gatar.recipedealer.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.AfterEach;
@@ -18,7 +19,9 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 import com.gatar.recipedealer.IntegrationTest;
 import com.gatar.recipedealer.TestAuth;
+import com.gatar.recipedealer.TestCaptures;
 import com.gatar.recipedealer.TestcontainersConfiguration;
+import com.gatar.recipedealer.processing.JobWorker;
 import com.gatar.recipedealer.web.ApiException;
 import com.jayway.jsonpath.JsonPath;
 
@@ -44,6 +47,9 @@ class AccountTest {
 
     @Autowired
     AdminAuthRateLimiter adminRateLimiter;
+
+    @Autowired
+    JobWorker worker;
 
     String name;
 
@@ -99,7 +105,7 @@ class AccountTest {
 
     @Test
     void registrationStopsAtTheUserLimit() {
-        int users = jdbc.sql("SELECT count(*) FROM app_user").query(Integer.class).single();
+        int users = jdbc.sql("SELECT count(*) FROM app_user WHERE deleted_at IS NULL").query(Integer.class).single();
         var full = new AccountService(jdbc, tokens, passwords, rateLimiter, new RegistrationProperties(CODE, users));
         assertThatThrownBy(() -> full.register(name, "a", "phone", CODE))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.error()).isEqualTo("user_limit_reached"));
@@ -109,17 +115,70 @@ class AccountTest {
     }
 
     @Test
-    void loginIssuesANewDeviceTokenEachTime() {
+    void loginOnTheSameDeviceReplacesItsToken() {
         String first = TestAuth.body(register(name, "hasło", "phone", CODE));
 
-        var login = login(name.toLowerCase(), "hasło", "tablet");
+        var login = login(name.toLowerCase(), "hasło", "Phone");
         assertThat(login).hasStatus(201);
         String body = TestAuth.body(login);
         assertThat(JsonPath.<String>read(body, "$.userName")).isEqualTo(name);
         assertThat(JsonPath.<String>read(body, "$.userId")).isEqualTo(JsonPath.read(first, "$.userId"));
+        assertThat(JsonPath.<String>read(body, "$.deviceId")).isEqualTo(JsonPath.read(first, "$.deviceId"));
+        assertThat(health(JsonPath.read(body, "$.token"))).hasStatusOk();
+        assertThat(health(JsonPath.read(first, "$.token"))).hasStatus(401);
+    }
+
+    @Test
+    void loginOnAnotherDeviceAddsADevice() {
+        String first = TestAuth.body(register(name, "hasło", "phone", CODE));
+
+        String body = TestAuth.body(login(name, "hasło", "tablet"));
         assertThat(JsonPath.<String>read(body, "$.deviceId")).isNotEqualTo(JsonPath.read(first, "$.deviceId"));
         assertThat(health(JsonPath.read(body, "$.token"))).hasStatusOk();
         assertThat(health(JsonPath.read(first, "$.token"))).hasStatusOk();
+    }
+
+    @Test
+    void aDeletedUserLosesAccessAndItsNameAndLimitSlotAreFree() {
+        String first = TestAuth.body(register(name, "hasło", "phone", CODE));
+        String userId = JsonPath.read(first, "$.userId");
+        int users = jdbc.sql("SELECT count(*) FROM app_user WHERE deleted_at IS NULL").query(Integer.class).single();
+
+        assertThat(deleteUser(userId)).hasStatus(204);
+        assertThat(deleteUser(userId)).hasStatus(204);
+        assertThat(health(JsonPath.read(first, "$.token"))).hasStatus(401);
+        assertThat(error(login(name, "hasło", "phone"))).isEqualTo("invalid_credentials");
+        assertThat(JsonPath.<List<String>>read(TestAuth.body(mvc.get().uri("/v1/admin/devices")
+                .header(HttpHeaders.AUTHORIZATION, TestAuth.adminBasic()).exchange()), "$[*].userId"))
+                .doesNotContain(userId);
+
+        // The freed slot: a limit equal to the users before the deletion lets one more register.
+        var limited = new AccountService(jdbc, tokens, passwords, rateLimiter, new RegistrationProperties(CODE, users));
+        var again = limited.register(name, "nowe", "phone", CODE);
+        assertThat(again.userId().toString()).isNotEqualTo(userId);
+        assertThat(health(again.token())).hasStatusOk();
+    }
+
+    @Test
+    void aUserWithHistoryCanBeDeleted() throws Exception {
+        String token = TestAuth.body(register(name, "hasło", "phone", CODE));
+        UUID recipeId = TestCaptures.newRecipe(mvc, JsonPath.read(token, "$.token"), worker,
+                TestCaptures.webCapture(UUID.randomUUID(), "https://account-" + name.substring(5) + ".pl/x", "Delete " + name));
+        String userId = JsonPath.read(token, "$.userId");
+        assertThat(mvc.post().uri("/v1/recipes/{id}/lock", recipeId)
+                .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(JsonPath.read(token, "$.token")))).hasStatus(201);
+
+        assertThat(deleteUser(userId)).hasStatus(204);
+
+        assertThat(jdbc.sql("SELECT count(*) FROM recipe_lock WHERE recipe_id = :id").param("id", recipeId)
+                .query(Long.class).single()).isZero();
+        assertThat(jdbc.sql("SELECT count(*) FROM capture WHERE user_id = :id").param("id", UUID.fromString(userId))
+                .query(Long.class).single()).isEqualTo(1);
+    }
+
+    @Test
+    void deletingAnUnknownUserIsNotFound() {
+        assertThat(deleteUser(UUID.randomUUID().toString())).hasStatus(404);
     }
 
     @Test
@@ -198,6 +257,11 @@ class AccountTest {
     private MvcTestResult setPassword(String token, String json) {
         return mvc.put().uri("/v1/me/password").header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token))
                 .contentType(MediaType.APPLICATION_JSON).content(json).exchange();
+    }
+
+    private MvcTestResult deleteUser(String userId) {
+        return mvc.delete().uri("/v1/admin/users/{id}", userId).header(HttpHeaders.AUTHORIZATION, TestAuth.adminBasic())
+                .exchange();
     }
 
     private MvcTestResult health(String token) {

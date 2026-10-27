@@ -30,16 +30,18 @@ public class ProcessingService {
     private final ResolutionRepository resolutionRepository;
     private final ResolutionService resolutions;
     private final TransactionTemplate tx;
+    private final ProcessingProperties properties;
 
     public ProcessingService(CaptureLoader loader, RecipeExtractor extractor, ProcessingRepository processing,
                              ResolutionRepository resolutionRepository, ResolutionService resolutions,
-                             TransactionTemplate tx) {
+                             TransactionTemplate tx, ProcessingProperties properties) {
         this.loader = loader;
         this.extractor = extractor;
         this.processing = processing;
         this.resolutionRepository = resolutionRepository;
         this.resolutions = resolutions;
         this.tx = tx;
+        this.properties = properties;
     }
 
     public void process(UUID captureId) throws Exception {
@@ -49,9 +51,11 @@ public class ProcessingService {
             return processing.startRun(captureId, extractor);
         });
 
+        Capture capture;
         List<StoredCandidate> candidates;
         try {
-            candidates = extract(loader.load(captureId));
+            capture = loader.load(captureId);
+            candidates = extract(capture);
         } catch (Exception e) {
             tx.executeWithoutResult(status -> processing.finishRun(runId, RunStatus.FAILED, String.valueOf(e)));
             throw e;
@@ -68,6 +72,12 @@ public class ProcessingService {
                         "No ingredients or steps could be read; waiting for automatic extraction."
                                 + (decided ? " Your decision is saved." : ""));
             } else {
+                if (properties.autoNew()) {
+                    // Identity keys and the source URL describe the whole capture: only for a single candidate.
+                    var sourceUrl = capture.body().path("source").path("url");
+                    String url = candidates.size() == 1 && sourceUrl.isString() ? sourceUrl.asString() : null;
+                    resolutions.decideUnmatchedAsNew(captureId, candidates, url, capture.userId(), capture.deviceId());
+                }
                 resolutions.apply(captureId, runId, candidates, true);
             }
         });

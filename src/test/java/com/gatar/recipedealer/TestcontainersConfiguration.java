@@ -77,6 +77,10 @@ public class TestcontainersConfiguration {
             registry.add("recipedealer.registration.code", () -> REGISTRATION_CODE);
             // Tests share one database and enroll many users; AccountTest checks the limit with its own service.
             registry.add("recipedealer.registration.max-users", () -> 100_000);
+            // Tests use unique titles, so every capture would become a recipe at once; AutoNewTest runs its own service.
+            registry.add("recipedealer.processing.auto-new", () -> false);
+            // WebImageTest serves photos from localhost.
+            registry.add("recipedealer.web-images.allow-private-addresses", () -> true);
         };
     }
 }

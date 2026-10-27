@@ -84,8 +84,10 @@ public class RecipeRepository {
     }
 
     /**
-     * Points the head to a revision and refreshes the copied search/display columns. Source summary and thumbnail
-     * change only when the revision comes from a capture (a user edit keeps them).
+     * Points the head to a revision and refreshes the copied search/display columns. The source summary changes only
+     * when the revision comes from a capture (a user edit keeps it). The thumbnail: the server copy of the head's
+     * main photo ({@code web_image}), else the newest photo or screenshot of a capture behind the recipe; a photo
+     * downloaded later is set by {@link #setWebImageThumbnail}.
      */
     public void moveHead(UUID recipeId, UUID revisionId, JsonNode content, UUID captureId) {
         jdbc.sql("""
@@ -95,10 +97,12 @@ public class RecipeRepository {
                                                    substring(c.source_url from '^[a-z]+://(?:www\\.)?([^/:?#]+)'),
                                                    lower(c.source_type))
                                    FROM capture c WHERE c.id = :captureId) END,
-                               thumbnail_blob = CASE WHEN CAST(:captureId AS uuid) IS NULL THEN thumbnail_blob ELSE (
-                                   SELECT a.blob_sha256 FROM capture_attachment a
-                                   WHERE a.capture_id = :captureId AND a.role IN ('image', 'screenshot')
-                                   ORDER BY a.name LIMIT 1) END,
+                               thumbnail_blob = coalesce(
+                                   (SELECT w.blob_sha256 FROM web_image w WHERE w.url = CAST(:imageUrl AS text)),
+                                   (SELECT a.blob_sha256
+                                    FROM recipe_revision v JOIN capture_attachment a ON a.capture_id = v.capture_id
+                                    WHERE v.recipe_id = :recipeId AND a.role IN ('image', 'screenshot')
+                                    ORDER BY v.created_at DESC, a.name LIMIT 1)),
                                updated_at = now()
                         WHERE id = :recipeId""")
                 .param("recipeId", recipeId)
@@ -106,6 +110,19 @@ public class RecipeRepository {
                 .param("title", RecipeContent.title(content))
                 .param("ingredients", RecipeContent.ingredientsText(content))
                 .param("captureId", captureId)
+                .param("imageUrl", RecipeContent.mainImage(content))
+                .update();
+    }
+
+    /** Sets a downloaded photo as the thumbnail of every live recipe whose head shows it; returns how many changed. */
+    public int setWebImageThumbnail(String url, String blobSha256) {
+        return jdbc.sql("""
+                        UPDATE recipe r SET thumbnail_blob = :sha256, updated_at = now()
+                        FROM recipe_revision h
+                        WHERE h.id = r.head_revision_id AND r.deleted_at IS NULL AND r.merged_into IS NULL
+                          AND trim(h.content->'images'->>0) = :url AND r.thumbnail_blob IS DISTINCT FROM :sha256""")
+                .param("url", url)
+                .param("sha256", blobSha256)
                 .update();
     }
 

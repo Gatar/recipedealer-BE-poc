@@ -31,6 +31,16 @@ public final class RecipeContent {
         return title == null || title.isNull() || title.asString().isBlank() ? null : title.asString().strip();
     }
 
+    /** The main photo: {@code images[0]} if it is an http(s) URL. */
+    public static String mainImage(JsonNode recipe) {
+        JsonNode images = recipe.get("images");
+        if (images == null || !images.isArray() || images.isEmpty() || !images.get(0).isString()) {
+            return null;
+        }
+        String url = images.get(0).asString().strip();
+        return url.regionMatches(true, 0, "https://", 0, 8) || url.regionMatches(true, 0, "http://", 0, 7) ? url : null;
+    }
+
     public static List<String> ingredientLines(JsonNode recipe) {
         return lines(recipe, "ingredientGroups");
     }

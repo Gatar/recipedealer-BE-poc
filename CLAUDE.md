@@ -46,6 +46,16 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   the current password.
 - Failed attempts: 5 per user name / 15 min, 50 in total / hour (in memory, reset on restart).
 
+## Before the beta (agreed 2026-10-27)
+- Auto-NEW: processing stores NEW (capture's user/device, no tags) for a candidate without a decision that matches
+  no live recipe (`CandidateService.hasMatch`: identity key, URL or similar title); otherwise `needs_decision`.
+  Switch: `recipedealer.processing.auto-new` (off in tests, `AutoNewTest` runs its own service).
+- Web photos: `WebImageService` downloads live heads' `images[0]` into the blob store (`web_image`, one row per
+  URL; poll every minute with the job worker; 404 / not an image / too large / private address = given up, other
+  failures retried 1 h, 4 h, 16 h, … up to 5 attempts). `thumbnail_blob` = that copy, else the newest capture
+  photo of the recipe. Never fetch from private addresses (`allow-private-addresses` is for tests only).
+- `DB_PASSWORD` stays as it is (Postgres is not published); never publish port 5432.
+
 ## Tags (agreed 2026-10-25)
 - Two levels `category:tag`; each level has a `name` (stable readable id, `[a-z0-9-]`, e.g. `meal:breakfast`) and
   a `title` (shown, e.g. "Posiłek" / "Śniadanie"). Catalog order = the user's order (`position`).

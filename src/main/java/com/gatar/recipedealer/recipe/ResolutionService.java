@@ -39,14 +39,16 @@ public class ResolutionService {
     private final RecipeRepository recipes;
     private final RevisionService revisions;
     private final TagService tags;
+    private final CandidateService matches;
 
     public ResolutionService(ProcessingRepository processing, ResolutionRepository resolutions, RecipeRepository recipes,
-                             RevisionService revisions, TagService tags) {
+                             RevisionService revisions, TagService tags, CandidateService matches) {
         this.processing = processing;
         this.resolutions = resolutions;
         this.recipes = recipes;
         this.revisions = revisions;
         this.tags = tags;
+        this.matches = matches;
     }
 
     /**
@@ -94,6 +96,23 @@ public class ResolutionService {
                 throw new NotFoundException("capture " + captureId + " has no candidate " + index);
             }
             apply(captureId, run.get().id(), candidates, false);
+        }
+    }
+
+    /**
+     * Stores NEW, in the name of the capture's device, for every candidate without a decision that matches no existing
+     * recipe ({@link CandidateService#hasMatch}); {@link #apply} then creates the recipes. {@code url}: the capture's
+     * source URL, or null when it does not describe the candidate alone.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void decideUnmatchedAsNew(UUID captureId, List<StoredCandidate> candidates, String url, UUID userId,
+                                     UUID deviceId) {
+        var decided = resolutions.forCapture(captureId).stream().map(Resolution::index).collect(Collectors.toSet());
+        for (StoredCandidate candidate : candidates) {
+            if (!decided.contains(candidate.index())
+                    && !matches.hasMatch(RecipeContent.title(candidate.content()), url, candidate.keys())) {
+                resolutions.upsertPending(captureId, candidate.index(), Action.NEW, null, List.of(), userId, deviceId);
+            }
         }
     }
 

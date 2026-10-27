@@ -82,18 +82,21 @@ Status as of 2026-10-22. Part of the final PoC summary; extend it as the PoC con
 
 ## Security shortcuts taken for the PoC
 
-To be revisited before real use:
-- Admin password and database password are `admin`.
+Status 2026-10-27 (before the beta):
+- ~~Admin password `admin`~~: changed. The database password stays `admin` on purpose: PostgreSQL is reachable only
+  inside the Docker network, and root on the server beats any database password. Never publish port 5432.
 - The GitHub token used by `gh` is stored in plain text in `~/.claude/settings.json` and was pasted into a session;
   rotate it.
 - The Actions deploy key logs in as `root` on the server.
-- No off-site backup; dumps and blobs live on the same server (covered only by Hetzner backups).
+- Off-site copies: Hetzner Backups (daily server snapshots) are on; a backup ZIP is copied off the server by hand.
 
 ## Open items
 
-- Android: implement the API from `update-android-prompt.txt` (decisions first, then sync/detail, search, editing).
-- Decide on auto-NEW without candidates (finding 2) and on server-side thumbnails for web captures (finding 3).
+- ~~Android: implement the API from `update-android-prompt.txt`~~: done.
+- ~~Auto-NEW without candidates (finding 2), server-side thumbnails for web captures (finding 3)~~: done
+  2026-10-27 (see `CLAUDE.md`, "Before the beta").
 - Investigate the `heuristic` ingredients on kwestiasmaku.com (finding 4).
 - ~~Make a skipped or misconfigured deploy fail the pipeline (finding 5).~~ Done: missing deploy secrets fail the
   deploy job.
-- Optional: server setup script (finding 8), `DEADMAN_URL` for the nightly dump, test a restore from a dump.
+- ~~Test a restore from a dump~~: done 2026-10-26 (`deploy/restore.sh`, nightly dump and API ZIP).
+- Optional: server setup script (finding 8), `DEADMAN_URL` for the nightly dump.

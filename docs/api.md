@@ -59,6 +59,15 @@ validated against it.
 
 `lock` is `null` unless someone holds the edit lease. `tags` are tag ids in catalog order.
 
+`thumbnailBlob` is the server's copy of the recipe's photo:
+
+- the photo `recipe.images[0]` (an http(s) URL), downloaded by the server in the background within about a minute
+  after it becomes the head's photo; until then, or if the download fails, the next option applies;
+- else the newest photo or screenshot attachment of a capture behind the recipe;
+- else `null`.
+
+A recipe whose thumbnail arrives later comes again in the sync feed.
+
 **CaptureView** (all capture endpoints):
 
 ```json
@@ -208,6 +217,11 @@ The inbox. Query `status`: comma-separated statuses, default `needs_decision,nee
 
 The user's decision for candidate `index` (0-based). Idempotent. Allowed before processing finishes: the decision is
 stored and applied when the candidate exists.
+
+Processing decides NEW by itself (in the name of the capture's device, without tags) for a candidate without a
+decision that matches no live recipe: no shared identity key (canonical URL, JSON-LD id), and nothing that
+`GET /v1/recipes/candidates` would list for its title and, with a single candidate, the capture's URL. A capture
+whose candidates are all decided goes to `done`; `needs_decision` means a real choice is left.
 
 Body is one of:
 

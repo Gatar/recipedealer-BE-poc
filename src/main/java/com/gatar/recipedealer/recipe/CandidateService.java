@@ -57,6 +57,24 @@ public class CandidateService {
         return result.size() > LIMIT ? result.subList(0, LIMIT) : result;
     }
 
+    /** Whether a capture could belong to an existing recipe: one of its identity keys, its URL or a similar title. */
+    public boolean hasMatch(String title, String url, List<RecipeKey> keys) {
+        for (RecipeKey key : keys) {
+            boolean owned = jdbc.sql("""
+                            SELECT EXISTS (SELECT 1 FROM recipe_key k JOIN recipe r ON r.id = k.recipe_id
+                                           WHERE k.kind = :kind AND k.value = :value
+                                             AND r.deleted_at IS NULL AND r.merged_into IS NULL)""")
+                    .param("kind", key.kind().name())
+                    .param("value", key.value())
+                    .query(Boolean.class)
+                    .single();
+            if (owned) {
+                return true;
+            }
+        }
+        return !find(title, url).isEmpty();
+    }
+
     private static Candidate map(java.sql.ResultSet rs, MatchReason reason) throws java.sql.SQLException {
         return new Candidate(Jdbc.uuid(rs, "id"), rs.getString("title"),
                 Math.round(rs.getDouble("score") * 1000) / 1000.0, reason, rs.getString("source_summary"),

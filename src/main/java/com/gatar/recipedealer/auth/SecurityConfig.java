@@ -20,7 +20,7 @@ import org.springframework.security.web.authentication.www.BasicAuthenticationFi
 import com.gatar.recipedealer.web.ApiError;
 
 @Configuration
-@EnableConfigurationProperties(AdminProperties.class)
+@EnableConfigurationProperties({AdminProperties.class, RegistrationProperties.class})
 public class SecurityConfig {
 
     /** {@code /v1/admin/**}: HTTP Basic with the admin credentials from the environment, rate limited. */
@@ -37,7 +37,7 @@ public class SecurityConfig {
                 .build();
     }
 
-    /** Everything else: device bearer tokens. */
+    /** Everything else: device bearer tokens, except registration and login. */
     @Bean
     @Order(2)
     SecurityFilterChain deviceChain(HttpSecurity http, DeviceTokenService tokens) throws Exception {
@@ -45,7 +45,7 @@ public class SecurityConfig {
                 AdminAuthRateLimiter.write(response, HttpStatus.UNAUTHORIZED, ApiError.of("unauthorized", "valid bearer token required"));
         return http
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/error").permitAll()
+                        .requestMatchers("/error", "/v1/auth/**").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(new BearerTokenFilter(tokens), UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(unauthorized))

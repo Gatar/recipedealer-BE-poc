@@ -15,8 +15,10 @@ same commit.
   - `/v1/admin/**`: HTTP Basic with the admin credentials (`RECIPEDEALER_ADMIN_USERNAME` / `_PASSWORD_HASH`).
     After 5 failed admin logins within an hour every admin call answers 429 `too_many_requests` until the limit
     refills (one attempt every 12 minutes).
-  - Everything else: `Authorization: Bearer <device token>` (from an enrollment). A missing, unknown or revoked
-    token answers 401 `unauthorized`.
+  - `/v1/auth/**` (registration, login): no authentication.
+  - Everything else: `Authorization: Bearer <device token>`. A token comes from registration, login or an admin
+    enrollment and does not expire. A missing, unknown or revoked token answers 401 `unauthorized`; the app then
+    asks the user to log in again.
 - **JSON:** UTF-8, camelCase fields. Times are ISO-8601 UTC (`2026-10-26T16:30:00.123456Z`). IDs are UUIDs;
   server-generated ones are UUIDv7. Fields that have no value are `null`, except where marked *omitted when empty*.
 - **Errors:** `{"error": "<code>", "details": ["<message>", …]}`. The code is stable and meant for the client; the
@@ -26,11 +28,12 @@ same commit.
   |---|---|---|
   | 400 | `invalid_request` | Malformed JSON or multipart, invalid parameter or field |
   | 401 | `unauthorized` | No valid device token / admin credentials |
+  | 403 | *(endpoint-specific)* | Authenticated, but not allowed, see the endpoint |
   | 404 | `not_found` | The resource does not exist. A 404 **without** this body means the route is missing (older backend) |
   | 409 | *(endpoint-specific)* | Conflict, see the endpoint |
   | 410 | `recipe_gone`, `recipe_deleted`, `recipe_merged` | The recipe was deleted or merged |
   | 413 | `payload_too_large` | Over 25 MiB per file or 50 MiB per request |
-  | 429 | `too_many_requests` | Admin rate limit |
+  | 429 | `too_many_requests` | Admin or login rate limit |
 
 - **ETags:** a recipe's `ETag` is its head revision id, a blob's is its SHA-256. Caddy's gzip turns the header into
   a weak `W/"…"` tag; the server accepts both forms, and the app builds `If-Match` from `headRevisionId` rather than
@@ -99,6 +102,77 @@ Categories and tags are in the user's order.
 
 `schemaVersion` is the last applied Flyway migration. `label` is `null` without a label; `manifest` is *omitted*
 for a ZIP whose manifest cannot be read.
+
+## Accounts
+
+A user has a unique name (case is ignored) and a password; each registration or login is a new device with its own
+token. Passwords have no rules except: not empty, at most 72 bytes in UTF-8 (a bcrypt limit).
+
+Rate limit for failed attempts (wrong password, wrong current password, wrong registration code):
+- 5 per user name within 15 minutes; failed registrations share one budget;
+- 50 in total within an hour.
+
+While a limit is exhausted, the request answers 429 `too_many_requests`, even with the right password.
+
+**Session** (registration and login):
+
+```json
+{"token": "rd_…", "userId": "…", "deviceId": "…", "userName": "Ania"}
+```
+
+The token is shown only in this response; the server keeps only its hash. `userName` is spelled as stored.
+
+### POST /v1/auth/register
+
+Creates a user with the first device. No token needed.
+
+```json
+{"userName": "Ania", "password": "…", "deviceName": "Pixel 9", "registrationCode": "…"}
+```
+
+- `userName`, `deviceName`: 1–100 characters.
+- `registrationCode`: the household's code, `REGISTRATION_CODE` in the server's `.env`.
+- At most 10 users in total (`MAX_USERS`), counting users enrolled by the admin, who is not limited.
+
+Responses:
+
+- **201** Session.
+- **400** `invalid_request`: missing field, empty or too long password.
+- **403** `registration_disabled`: the server has no registration code.
+- **403** `invalid_registration_code`.
+- **409** `user_exists`: also for a user enrolled by the admin; that user sets a password with `PUT /v1/me/password`.
+- **409** `user_limit_reached`.
+- **429** `too_many_requests`.
+
+### POST /v1/auth/login
+
+A new device token for an existing user, e.g. after reinstalling the app or on a new device. Earlier tokens stay
+valid until the admin revokes them. No token needed.
+
+```json
+{"userName": "Ania", "password": "…", "deviceName": "Pixel 9"}
+```
+
+- **201** Session.
+- **400** `invalid_request`: missing field.
+- **401** `invalid_credentials`: same answer for a wrong password, an unknown user and a user without a password.
+- **429** `too_many_requests`.
+
+### PUT /v1/me/password
+
+Sets or changes the password of the token's user. This is how a user enrolled by the admin gets a password.
+
+```json
+{"password": "new", "currentPassword": "old"}
+```
+
+`currentPassword` is required once the user has a password.
+
+- **204**.
+- **400** `invalid_request`.
+- **401** `unauthorized`: no valid token.
+- **403** `invalid_credentials`: wrong or missing `currentPassword`.
+- **429** `too_many_requests`.
 
 ## Captures
 
@@ -350,7 +424,8 @@ HTTP Basic with the admin credentials; see Conventions for the rate limit.
 ### POST /v1/admin/enrollments
 
 Body `{"userName": "Ania", "deviceName": "Pixel 9"}` (each 1–100 characters). The user is created when the name is
-new; shared devices are users too (e.g. `"userName": "Tablet"`).
+new; shared devices are users too (e.g. `"userName": "Tablet"`). It works without a password and beyond the user
+limit; the user can set a password later with `PUT /v1/me/password`.
 
 - **201** `{token, userId, deviceId}`. The token is shown only this once.
 - **400** `invalid_request`.

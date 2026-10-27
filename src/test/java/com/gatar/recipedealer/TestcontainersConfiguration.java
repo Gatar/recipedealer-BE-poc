@@ -25,6 +25,7 @@ public class TestcontainersConfiguration {
 
     public static final String ADMIN_USERNAME = "admin";
     public static final String ADMIN_PASSWORD = "test-admin-password";
+    public static final String REGISTRATION_CODE = "test-household-code";
 
     @Bean
     @ServiceConnection
@@ -73,6 +74,9 @@ public class TestcontainersConfiguration {
             registry.add("recipedealer.backup.dir", backupDir::toString);
             registry.add("recipedealer.admin.username", () -> ADMIN_USERNAME);
             registry.add("recipedealer.admin.password-hash", () -> hash);
+            registry.add("recipedealer.registration.code", () -> REGISTRATION_CODE);
+            // Tests share one database and enroll many users; AccountTest checks the limit with its own service.
+            registry.add("recipedealer.registration.max-users", () -> 100_000);
         };
     }
 }

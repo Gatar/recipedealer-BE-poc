@@ -26,3 +26,7 @@ recipedealer:
     blob-dir: ${BLOB_DIR:./data/blobs}
   backup:
     dir: ${BACKUP_DIR:./data/backups}
+  registration:
+    # Without a code, POST /v1/auth/register answers 403 registration_disabled.
+    code: ${REGISTRATION_CODE:}
+    max-users: ${MAX_USERS:10}

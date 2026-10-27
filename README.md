@@ -30,8 +30,9 @@ Flyway, JUnit + Testcontainers. Deployed with Docker Compose (app, PostgreSQL, C
 The full reference is [`docs/api.md`](docs/api.md): every endpoint with its request, responses and error codes.
 `ApiDocumentationTest` fails the build when the code and that file list different endpoints.
 
-In short: devices authenticate with `Authorization: Bearer <device token>` and use `/v1/captures`, `/v1/recipes`,
-`/v1/tags`, `/v1/blobs` and `/v1/health`. The admin uses HTTP Basic on `/v1/admin/**` (enrollments, devices,
+In short: a user registers (`POST /v1/auth/register`, with the household registration code) or logs in
+(`POST /v1/auth/login`) and gets a device token. Devices authenticate with `Authorization: Bearer <device token>`
+and use `/v1/captures`, `/v1/recipes`, `/v1/tags`, `/v1/blobs`, `/v1/me` and `/v1/health`. The admin uses HTTP Basic on `/v1/admin/**` (enrollments, devices,
 backups). Errors are `{"error": "...", "details": ["..."]}`.
 
 ## Local development
@@ -56,8 +57,9 @@ export RECIPEDEALER_ADMIN_PASSWORD_HASH="$(docker run --rm caddy:2.11.7 caddy ha
 ```
 
 Configuration (environment variables): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `BLOB_DIR`, `BACKUP_DIR`,
-`RECIPEDEALER_ADMIN_USERNAME`, `RECIPEDEALER_ADMIN_PASSWORD_HASH` (bcrypt). The admin credentials never live in
-the database; without them the admin endpoints answer 401.
+`RECIPEDEALER_ADMIN_USERNAME`, `RECIPEDEALER_ADMIN_PASSWORD_HASH` (bcrypt), `REGISTRATION_CODE`, `MAX_USERS`
+(default 10). The admin credentials never live in the database; without them the admin endpoints answer 401.
+Without `REGISTRATION_CODE` self-service registration is disabled.
 
 ## Deployment
 

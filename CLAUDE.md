@@ -33,6 +33,16 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Restore only on the server (`deploy/restore.sh`), never through the API; it saves a pre-restore dump first.
 - Later option, not decided: off-site copies (restic to a Hetzner Storage Box / Object Storage).
 
+## Accounts (agreed 2026-10-27)
+- Self-service: `POST /v1/auth/register` (needs the household `REGISTRATION_CODE`; without it registration is
+  disabled) and `POST /v1/auth/login`; both return a new device token. Admin enrollment stays, without a password and
+  beyond the limit.
+- At most `MAX_USERS` (10) users in total. Passwords: no rules, bcrypt, at most 72 bytes (rejected, not truncated).
+- Tokens do not expire; every login is a new device, earlier tokens stay until revoked.
+- Users without a password (admin-enrolled) set one with `PUT /v1/me/password` and their token; changing it needs
+  the current password.
+- Failed attempts: 5 per user name / 15 min, 50 in total / hour (in memory, reset on restart).
+
 ## Tags (agreed 2026-10-25)
 - Two levels `category:tag`; each level has a `name` (stable readable id, `[a-z0-9-]`, e.g. `meal:breakfast`) and
   a `title` (shown, e.g. "Posiłek" / "Śniadanie"). Catalog order = the user's order (`position`).

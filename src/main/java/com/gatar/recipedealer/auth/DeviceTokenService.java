@@ -44,6 +44,12 @@ public class DeviceTokenService {
                 .param("id", Ids.newId())
                 .param("name", userName.strip())
                 .query(UUID.class).single();
+        return issue(userId, deviceName);
+    }
+
+    /** A new device with a new token for an existing user. The plain token is returned only here. */
+    @Transactional
+    public Enrollment issue(UUID userId, String deviceName) {
         String token = newToken();
         UUID deviceId = Ids.newId();
         jdbc.sql("INSERT INTO device_token (id, user_id, device_name, token_hash) VALUES (:id, :userId, :name, :hash)")

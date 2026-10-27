@@ -11,6 +11,8 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Pin library and image versions; check current stable versions instead of relying on memory.
 - API documentation: `docs/api.md`, one `### METHOD /path` heading per endpoint, spelled like the Spring mapping.
   Update it in the same commit as any API change; `ApiDocumentationTest` fails on missing or extra endpoints.
+  The Postman collection `docs/RecipeDealer.postman_collection.json` (v2.1, no secrets in it) follows the same
+  changes; no test checks it.
 
 ## Decisions (agreed 2026-10-21)
 - Versions: Spring Boot 4.1.1 (manages Flyway, Testcontainers 2.x, JUnit 6, Jackson 3), PostgreSQL 18.6,

@@ -1,0 +1,1331 @@
+{
+  "info": {
+    "name": "RecipeDealer API v1",
+    "description": "Generated from docs/api.md. Secrets (deviceToken, adminPassword, password, registrationCode) are empty: set them as current values in an environment or in the collection's Variables tab, and do not export them. Requests save ids (token, recipeId, lockId, headRevisionId, ...) into collection variables for the next request.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{deviceToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Accounts",
+      "description": "Registration and login need no token; both save the new token into `deviceToken`.",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Creates a user with the first device. 201 Session; 403 registration_disabled / invalid_registration_code; 409 user_exists / user_limit_reached; 429 too_many_requests.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userName\": \"{{userName}}\",\n  \"password\": \"{{password}}\",\n  \"deviceName\": \"{{deviceName}}\",\n  \"registrationCode\": \"{{registrationCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "New token for an existing user; the same device name replaces that device's token. 201 Session; 401 invalid_credentials; 429 too_many_requests.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userName\": \"{{userName}}\",\n  \"password\": \"{{password}}\",\n  \"deviceName\": \"{{deviceName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Set or change password",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/me/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "me",
+                "password"
+              ]
+            },
+            "description": "currentPassword is required once the user has a password. 204; 403 invalid_credentials.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{password}}\",\n  \"currentPassword\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Captures",
+      "description": "Uploading creates real data: on the production server a capture with a new URL and title becomes a new recipe by itself (auto-NEW). Delete it afterwards (Edit lock → Acquire, Recipes → Delete).",
+      "item": [
+        {
+          "name": "Upload capture",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/captures/{{captureId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "captures",
+                "{{captureId}}"
+              ]
+            },
+            "description": "Multipart: part `capture` = capture JSON (capture-v1.json), one part per attachment named like `attachments[].name`. The pre-request script generates a new `captureId`. 201 stored, 200 already stored, 400 invalid_capture, 413 payload_too_large.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "capture",
+                  "type": "text",
+                  "contentType": "application/json",
+                  "value": "{\n  \"schemaVersion\": 1,\n  \"captureId\": \"{{captureId}}\",\n  \"capturedAt\": \"2026-10-27T12:00:00Z\",\n  \"client\": {\n    \"appVersion\": \"1.0.0\",\n    \"androidSdk\": 36,\n    \"deviceModel\": \"Pixel 9\"\n  },\n  \"share\": {\n    \"action\": \"android.intent.action.SEND\",\n    \"mimeType\": \"text/plain\",\n    \"sourceApp\": \"com.android.chrome\",\n    \"subject\": \"Szarlotka – Kwestia Smaku\",\n    \"title\": null\n  },\n  \"source\": {\n    \"type\": \"WEB\",\n    \"url\": \"https://example.com/postman/{{captureId}}\",\n    \"siteName\": \"Kwestia Smaku\",\n    \"author\": null,\n    \"files\": []\n  },\n  \"recipe\": {\n    \"title\": \"Postman test {{captureId}}\",\n    \"language\": \"pl\",\n    \"servings\": {\n      \"text\": \"12 porcji\",\n      \"count\": 12\n    },\n    \"times\": {},\n    \"ingredientGroups\": [\n      {\n        \"name\": \"Jabłka\",\n        \"items\": [\n          \"1,5 kg jabłek\",\n          \"5 łyżek cukru\",\n          \"1/2 łyżeczki cynamonu\"\n        ]\n      },\n      {\n        \"name\": \"Ciasto\",\n        \"items\": [\n          \"320 g mąki (2 szklanki)\",\n          \"250 g zimnego masła*\",\n          \"1 jajko\"\n        ]\n      }\n    ],\n    \"stepGroups\": [\n      {\n        \"name\": \"Jabłka\",\n        \"items\": [\n          \"Jabłka obrać, pokroić na ćwiartki i wyciąć gniazda nasienne.\"\n        ]\n      },\n      {\n        \"name\": \"Pieczenie\",\n        \"items\": [\n          \"Piekarnik nagrzać do 180 stopni C.\",\n          \"Piec przez ok. 50 minut.\"\n        ]\n      }\n    ],\n    \"notes\": [\n      \"* masło można zastąpić margaryną.\"\n    ],\n    \"images\": []\n  },\n  \"completeness\": {\n    \"score\": 1.0,\n    \"hasTitle\": true,\n    \"hasIngredients\": true,\n    \"hasSteps\": true,\n    \"bestStage\": \"heuristic\"\n  },\n  \"provenance\": {\n    \"title\": \"heuristic\",\n    \"servings\": \"heuristic\",\n    \"ingredients\": \"heuristic\",\n    \"steps\": \"heuristic\",\n    \"notes\": \"heuristic\"\n  },\n  \"raw\": {\n    \"web\": {\n      \"finalUrl\": \"https://example.com/postman/{{captureId}}\",\n      \"canonicalUrl\": \"https://example.com/postman/{{captureId}}\",\n      \"title\": \"Szarlotka – Kwestia Smaku\",\n      \"lang\": \"pl\",\n      \"siteName\": \"Kwestia Smaku\",\n      \"ogImage\": \"https://www.kwestiasmaku.com/…/szarlotka-00_2.jpg\",\n      \"jsonLdRecipeId\": null,\n      \"botChallenge\": null,\n      \"stabilized\": false,\n      \"renderTimeMs\": 15000,\n      \"readableText\": \"Szarlotka … Składniki … Przygotowanie …\",\n      \"extractor\": {\n        \"…\": \"seed extractor output\"\n      }\n    }\n  },\n  \"attachments\": [],\n  \"diagnostics\": {\n    \"timingsMs\": {\n      \"stabilize\": 15000,\n      \"merge\": 2\n    },\n    \"errors\": [],\n    \"notes\": [\n      \"trigger=timeout\"\n    ]\n  }\n}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('captureId', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.recipes && body.recipes[0] && body.recipes[0].recipeId !== undefined && body.recipes && body.recipes[0] && body.recipes[0].recipeId !== null) pm.collectionVariables.set('recipeId', body.recipes && body.recipes[0] && body.recipes[0].recipeId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Capture status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/captures/{{captureId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "captures",
+                "{{captureId}}"
+              ]
+            },
+            "description": "200 CaptureView; 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.recipes && body.recipes[0] && body.recipes[0].recipeId !== undefined && body.recipes && body.recipes[0] && body.recipes[0].recipeId !== null) pm.collectionVariables.set('recipeId', body.recipes && body.recipes[0] && body.recipes[0].recipeId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inbox",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/captures?status=needs_decision,needs_attention",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "captures"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "needs_decision,needs_attention",
+                  "disabled": false,
+                  "description": "Comma-separated: accepted, processing, needs_decision, needs_attention, done"
+                }
+              ]
+            },
+            "description": "200 [CaptureView], at most 200, newest first."
+          }
+        },
+        {
+          "name": "Decide NEW",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/captures/{{captureId}}/extracted/0/resolution",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "captures",
+                "{{captureId}}",
+                "extracted",
+                "0",
+                "resolution"
+              ]
+            },
+            "description": "Candidate index 0 becomes a new recipe; tags optional. 200 CaptureView; 409 already_resolved.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"NEW\",\n  \"tags\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.recipes && body.recipes[0] && body.recipes[0].recipeId !== undefined && body.recipes && body.recipes[0] && body.recipes[0].recipeId !== null) pm.collectionVariables.set('recipeId', body.recipes && body.recipes[0] && body.recipes[0].recipeId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Decide UPDATE",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/captures/{{captureId}}/extracted/0/resolution",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "captures",
+                "{{captureId}}",
+                "extracted",
+                "0",
+                "resolution"
+              ]
+            },
+            "description": "Candidate index 0 becomes a revision of `recipeId`. 409 already_resolved / recipe_gone.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"UPDATE\",\n  \"recipeId\": \"{{recipeId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Recipes",
+      "description": "",
+      "item": [
+        {
+          "name": "Candidates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes/candidates?title=Szarlotka",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes",
+                "candidates"
+              ],
+              "query": [
+                {
+                  "key": "title",
+                  "value": "Szarlotka",
+                  "disabled": false,
+                  "description": ""
+                },
+                {
+                  "key": "url",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Canonical URL"
+                }
+              ]
+            },
+            "description": "Possible matches: URL first, then similar titles."
+          }
+        },
+        {
+          "name": "Sync feed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes?limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": false,
+                  "description": "1–500"
+                },
+                {
+                  "key": "cursor",
+                  "value": "{{cursor}}",
+                  "disabled": true,
+                  "description": "From the previous page"
+                },
+                {
+                  "key": "updatedSince",
+                  "value": "2026-10-01T00:00:00Z",
+                  "disabled": true,
+                  "description": "Only without a cursor"
+                }
+              ]
+            },
+            "description": "200 {items, nextCursor, hasMore}; saves `cursor`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.nextCursor !== undefined && body.nextCursor !== null) pm.collectionVariables.set('cursor', body.nextCursor);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes/search?q=szarlotka",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "szarlotka",
+                  "disabled": false,
+                  "description": ""
+                }
+              ]
+            },
+            "description": "Titles and ingredients, typo tolerant; at most 30."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body[0] && body[0].recipeId !== undefined && body[0] && body[0].recipeId !== null) pm.collectionVariables.set('recipeId', body[0] && body[0].recipeId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Recipe",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes/{{recipeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes",
+                "{{recipeId}}"
+              ]
+            },
+            "description": "200 RecipeView with ETag; saves `headRevisionId`. 410 recipe_deleted / recipe_merged."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.headRevisionId !== undefined && body.headRevisionId !== null) pm.collectionVariables.set('headRevisionId', body.headRevisionId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Revisions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes/{{recipeId}}/revisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes",
+                "{{recipeId}}",
+                "revisions"
+              ]
+            },
+            "description": "All revisions, newest first."
+          }
+        },
+        {
+          "name": "Save edit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Lock-Id",
+                "value": "{{lockId}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "\"{{headRevisionId}}\""
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes/{{recipeId}}/revisions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes",
+                "{{recipeId}}",
+                "revisions"
+              ]
+            },
+            "description": "Needs `Lock-Id` (Edit lock → Acquire) and `If-Match` (Recipe saves headRevisionId). 201 new head; 200 unchanged; 409 lock_required / lock_expired / locked; 412 head_changed; 428.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Szarlotka\",\n  \"language\": \"pl\",\n  \"servings\": {\n    \"text\": \"12 porcji\",\n    \"count\": 12\n  },\n  \"times\": {},\n  \"ingredientGroups\": [\n    {\n      \"name\": null,\n      \"items\": [\n        \"1,5 kg jabłek\",\n        \"320 g mąki\"\n      ]\n    }\n  ],\n  \"stepGroups\": [\n    {\n      \"name\": null,\n      \"items\": [\n        \"Jabłka obrać.\",\n        \"Piec 50 minut w 180 °C.\"\n      ]\n    }\n  ],\n  \"notes\": [],\n  \"images\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.headRevisionId !== undefined && body.headRevisionId !== null) pm.collectionVariables.set('headRevisionId', body.headRevisionId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Lock-Id",
+                "value": "{{lockId}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "\"{{headRevisionId}}\"",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes/{{recipeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes",
+                "{{recipeId}}"
+              ]
+            },
+            "description": "Soft delete of real data: ask before using it on production. Needs `Lock-Id`; If-Match optional. 204."
+          }
+        },
+        {
+          "name": "Set tags",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes/{{recipeId}}/tags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes",
+                "{{recipeId}}",
+                "tags"
+              ]
+            },
+            "description": "Replaces the recipe's tags. 400 unknown_tag.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tags\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Edit lock",
+      "description": "5-minute lease: acquire, heartbeat every 2 minutes, release.",
+      "item": [
+        {
+          "name": "Acquire",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes/{{recipeId}}/lock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes",
+                "{{recipeId}}",
+                "lock"
+              ]
+            },
+            "description": "201 {lockId, expiresAt}; saves `lockId`. 409 locked."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.lockId !== undefined && body.lockId !== null) pm.collectionVariables.set('lockId', body.lockId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Heartbeat",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes/{{recipeId}}/lock/{{lockId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes",
+                "{{recipeId}}",
+                "lock",
+                "{{lockId}}"
+              ]
+            },
+            "description": "200; 409 lock_expired / locked."
+          }
+        },
+        {
+          "name": "Release",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes/{{recipeId}}/lock/{{lockId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes",
+                "{{recipeId}}",
+                "lock",
+                "{{lockId}}"
+              ]
+            },
+            "description": "204."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tags",
+      "description": "Every catalog change answers with the whole catalog.",
+      "item": [
+        {
+          "name": "Catalog",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/tags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "tags"
+              ]
+            },
+            "description": "200 catalog with recipeCount."
+          }
+        },
+        {
+          "name": "Create category",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/tags/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "tags",
+                "categories"
+              ]
+            },
+            "description": "name derived from title when missing.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Posiłek\",\n  \"name\": \"meal\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Update category",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/tags/categories/{{category}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "tags",
+                "categories",
+                "{{category}}"
+              ]
+            },
+            "description": "Missing fields stay unchanged; a rename changes all its tag ids.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Posiłek\",\n  \"position\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Delete category",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/tags/categories/{{category}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "tags",
+                "categories",
+                "{{category}}"
+              ]
+            },
+            "description": "Removes its tags from recipes."
+          }
+        },
+        {
+          "name": "Create tag",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/tags/categories/{{category}}/tags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "tags",
+                "categories",
+                "{{category}}",
+                "tags"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Śniadanie\",\n  \"name\": \"breakfast\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Update tag",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/tags/categories/{{category}}/tags/{{tag}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "tags",
+                "categories",
+                "{{category}}",
+                "tags",
+                "{{tag}}"
+              ]
+            },
+            "description": "`category` moves the tag; `position` is then its place there.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Śniadanie\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Delete tag",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/tags/categories/{{category}}/tags/{{tag}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "tags",
+                "categories",
+                "{{category}}",
+                "tags",
+                "{{tag}}"
+              ]
+            },
+            "description": "Removes it from recipes."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Blobs and health",
+      "description": "",
+      "item": [
+        {
+          "name": "Blob",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/blobs/{{blobSha256}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "blobs",
+                "{{blobSha256}}"
+              ]
+            },
+            "description": "Attachment or photo by SHA-256 (e.g. thumbnailBlob)."
+          }
+        },
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "health"
+              ]
+            },
+            "description": "200 {\"status\": \"ok\"}; checks the token too."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "description": "HTTP Basic (`adminUser` / `adminPassword`). 5 failed logins per hour → 429 for all admin calls.",
+      "item": [
+        {
+          "name": "Enroll device",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/enrollments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "enrollments"
+              ]
+            },
+            "description": "Creates the user when new; no password, beyond the user limit. Saves the token into `deviceToken`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userName\": \"{{userName}}\",\n  \"deviceName\": \"{{deviceName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Devices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/devices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "devices"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Revoke device",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/devices/{{deviceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "devices",
+                "{{deviceId}}"
+              ]
+            },
+            "description": "Revokes the token. Ask before using it."
+          }
+        },
+        {
+          "name": "Delete user",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/users/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users",
+                "{{userId}}"
+              ]
+            },
+            "description": "Soft delete of a real user. Ask before using it."
+          }
+        },
+        {
+          "name": "Create backup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/backups",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "backups"
+              ]
+            },
+            "description": "201 BackupInfo; 409 backup_running.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.name !== undefined && body.name !== null) pm.collectionVariables.set('backupName', body.name);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Backups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/backups",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "backups"
+              ]
+            },
+            "description": "[BackupInfo], newest first."
+          }
+        },
+        {
+          "name": "Download backup",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/backups/{{backupName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "backups",
+                "{{backupName}}"
+              ]
+            },
+            "description": "application/zip: use Send and Download."
+          }
+        },
+        {
+          "name": "Delete backup",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/backups/{{backupName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "backups",
+                "{{backupName}}"
+              ]
+            },
+            "description": "204."
+          }
+        }
+      ],
+      "auth": {
+        "type": "basic",
+        "basic": [
+          {
+            "key": "username",
+            "value": "{{adminUser}}",
+            "type": "string"
+          },
+          {
+            "key": "password",
+            "value": "{{adminPassword}}",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://2.31.66.200",
+      "type": "string"
+    },
+    {
+      "key": "deviceToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminUser",
+      "value": "admin",
+      "type": "string"
+    },
+    {
+      "key": "adminPassword",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceName",
+      "value": "Postman",
+      "type": "string"
+    },
+    {
+      "key": "registrationCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "captureId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "recipeId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "headRevisionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lockId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cursor",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "category",
+      "value": "meal",
+      "type": "string"
+    },
+    {
+      "key": "tag",
+      "value": "breakfast",
+      "type": "string"
+    },
+    {
+      "key": "blobSha256",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "backupName",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

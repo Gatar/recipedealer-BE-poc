@@ -99,4 +99,5 @@ Status 2026-10-27 (before the beta):
 - ~~Make a skipped or misconfigured deploy fail the pipeline (finding 5).~~ Done: missing deploy secrets fail the
   deploy job.
 - ~~Test a restore from a dump~~: done 2026-10-26 (`deploy/restore.sh`, nightly dump and API ZIP).
-- Optional: server setup script (finding 8), `DEADMAN_URL` for the nightly dump.
+- ~~`DEADMAN_URL` for the nightly dump~~: set 2026-10-27 (healthchecks.io check).
+- Optional: server setup script (finding 8).

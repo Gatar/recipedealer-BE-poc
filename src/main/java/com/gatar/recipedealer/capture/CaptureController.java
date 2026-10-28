@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,13 +39,15 @@ public class CaptureController {
     private final CaptureQueryService queries;
     private final ResolutionService resolutions;
     private final LlmExtractionService llm;
+    private final CaptureDeletionService deletions;
 
     public CaptureController(CaptureIngestService ingest, CaptureQueryService queries, ResolutionService resolutions,
-                             LlmExtractionService llm) {
+                             LlmExtractionService llm, CaptureDeletionService deletions) {
         this.ingest = ingest;
         this.queries = queries;
         this.resolutions = resolutions;
         this.llm = llm;
+        this.deletions = deletions;
     }
 
     /** Multipart: part {@code capture} (JSON) plus one part per attachment, named like {@code attachments[].name}. */
@@ -83,6 +86,13 @@ public class CaptureController {
     public ResponseEntity<CaptureView> forceLlmExtraction(@PathVariable UUID captureId) {
         llm.force(captureId);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(queries.view(captureId));
+    }
+
+    /** Deletes a capture that never became a recipe, with its attachments; 409 once it did or while it is processed. */
+    @DeleteMapping("/{captureId}")
+    public ResponseEntity<Void> delete(@PathVariable UUID captureId) {
+        deletions.delete(captureId);
+        return ResponseEntity.noContent().build();
     }
 
     private static Set<CaptureStatus> parseStatuses(String value) {

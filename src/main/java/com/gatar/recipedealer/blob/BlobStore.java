@@ -17,6 +17,9 @@ public interface BlobStore {
 
     boolean exists(String sha256);
 
+    /** Removes the content; a missing blob is not an error. Only for blobs no row refers to. */
+    void delete(String sha256) throws IOException;
+
     static boolean isValidSha256(String sha256) {
         return sha256 != null && SHA256_HEX.matcher(sha256).matches();
     }

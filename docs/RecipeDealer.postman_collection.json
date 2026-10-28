@@ -379,6 +379,25 @@
             },
             "description": "202 CaptureView (processing); 404; 409 extraction_in_progress / no_llm_input; 503 llm_unavailable."
           }
+        },
+        {
+          "name": "Delete capture",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/captures/{{captureId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "captures",
+                "{{captureId}}"
+              ]
+            },
+            "description": "A capture that never became a recipe, with its attachments. 204; 404; 409 capture_applied / extraction_in_progress. Cannot be undone."
+          }
         }
       ]
     },

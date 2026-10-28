@@ -270,6 +270,17 @@ no LLM step finds a complete recipe for a capture that was already applied, noth
 - **409** `no_llm_input`: the capture has no attachment or text an LLM could read.
 - **503** `llm_unavailable`: the server has no Claude API key.
 
+### DELETE /v1/captures/{captureId}
+
+Deletes a capture that never became a recipe, e.g. a photo of an invoice shared by mistake: the capture, its
+attachments, processing runs and stored decisions, and the blobs nothing else uses. Cannot be undone. Any device of
+the household may delete it.
+
+- **204**.
+- **404** `not_found`: also when it was deleted already.
+- **409** `capture_applied`: the capture created or updated a recipe; delete the recipe instead.
+- **409** `extraction_in_progress`: the capture is being processed (a job is queued or running).
+
 ## Recipes
 
 ### GET /v1/recipes/candidates

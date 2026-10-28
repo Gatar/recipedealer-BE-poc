@@ -73,6 +73,11 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   direction of the letters instead, Haiku and Sonnet both got sideways pages wrong (Sonnet: 2 of 2 on one page). The newest succeeded (non-comparison) LLM run of a capture
   that judged its images decides: its cut-out or nothing (a photo of only text gives no thumbnail), refreshed after
   every such run even without a new revision; captures no LLM run judged (heuristic) keep the raw attachment.
+- Capture deletion (user, 2026-10-28; e.g. an invoice shared by mistake): `DELETE /v1/captures/{id}`
+  (`CaptureDeletionService`) removes a capture that never became a recipe completely (rows, runs, decisions, and the
+  blobs nothing else uses; files after the commit). 409 `capture_applied` / `extraction_in_progress`. The capture
+  tables stay immutable: V15 allows `DELETE` only in a transaction with `set_config('rd.delete_capture', 'on', true)`.
+  A backup running at that moment can fail on the vanished file; run it again.
 - `DB_PASSWORD` stays as it is (Postgres is not published); never publish port 5432.
 
 ## Tags (agreed 2026-10-25)

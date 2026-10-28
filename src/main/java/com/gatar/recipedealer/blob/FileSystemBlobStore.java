@@ -74,6 +74,11 @@ public class FileSystemBlobStore implements BlobStore {
         return BlobStore.isValidSha256(sha256) && Files.isRegularFile(path(sha256));
     }
 
+    @Override
+    public void delete(String sha256) throws IOException {
+        Files.deleteIfExists(path(sha256));
+    }
+
     Path path(String sha256) {
         if (!BlobStore.isValidSha256(sha256)) {
             throw new IllegalArgumentException("not a SHA-256 hex digest: " + sha256);

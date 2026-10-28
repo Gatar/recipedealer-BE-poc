@@ -91,7 +91,13 @@ public class DishPhotoCropper {
                     log.info("Capture {}: no dish photo on the second look", capture.id());
                     return new Result(DishPhotoFinding.NONE, usage);
                 }
-                photo = within(search, refined.get(), original);
+                Region second = within(search, refined.get(), original);
+                if (plausibleRefinement(photo, second)) {
+                    photo = second;
+                } else {
+                    log.info("Capture {}: second look at the dish photo gave {}, far from the first box {}; the first box stays",
+                            capture.id(), second, photo);
+                }
             }
         } catch (LlmException | IllegalArgumentException e) {
             log.info("Capture {}: second look at the dish photo failed, the first box stays: {}", capture.id(), e.getMessage());
@@ -116,6 +122,20 @@ public class DishPhotoCropper {
         int top = clamp(area.y() + (int) Math.round(area.height() * box.top() / 1000.0), original.getHeight());
         int bottom = clamp(area.y() + (int) Math.round(area.height() * box.bottom() / 1000.0), original.getHeight());
         return new Region(left, top, Math.max(1, right - left), Math.max(1, bottom - top));
+    }
+
+    /**
+     * The second look corrects the first box, it does not move it elsewhere: it keeps at least a third of the first
+     * box's area and at least a third of it lies on the first box (seen on Haiku: once a 1034 × 34 px strip for a
+     * 1054 × 748 px photo; a cut-off photo widened 2.7 times is fine).
+     */
+    static boolean plausibleRefinement(Region first, Region second) {
+        long firstArea = (long) first.width() * first.height();
+        long secondArea = (long) second.width() * second.height();
+        int overlapWidth = Math.min(first.x() + first.width(), second.x() + second.width()) - Math.max(first.x(), second.x());
+        int overlapHeight = Math.min(first.y() + first.height(), second.y() + second.height()) - Math.max(first.y(), second.y());
+        long overlap = overlapWidth <= 0 || overlapHeight <= 0 ? 0 : (long) overlapWidth * overlapHeight;
+        return secondArea * 3 >= firstArea && overlap * 3 >= secondArea;
     }
 
     static Region expand(Region box, BufferedImage original) {

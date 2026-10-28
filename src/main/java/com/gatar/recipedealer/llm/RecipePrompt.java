@@ -20,7 +20,7 @@ import tools.jackson.databind.node.ObjectNode;
  */
 public final class RecipePrompt {
 
-    public static final String VERSION = "p3";
+    public static final String VERSION = "p4";
 
     /** Provenance stage of every field the model produced; a weak stage in {@code ReviewPolicy}. */
     public static final String STAGE = "llm";
@@ -69,9 +69,10 @@ public final class RecipePrompt {
             logo, a drawing or an advertisement), set found to true, image to that image's number, and left, top, \
             right, bottom to the edges of the photograph within that image, in thousandths of the image's width \
             (left, right) and height (top, bottom), measured from its top-left corner as the image is given (not \
-            turned). Fit the box tightly around the photograph and leave out the text around it. Set rotation to how \
-            many degrees (0, 90, 180 or 270) the image has to be turned clockwise so that the page and the \
-            photograph are upright; judge it by the direction of the text. When several images show the dish, \
+            turned). Fit the box tightly around the photograph and leave out the text around it. Set textTop to the \
+            side of the image that the tops of the letters of the page's text point to: "up" when the text reads \
+            normally, "down" when it is upside down, "left" or "right" when the page was photographed sideways. \
+            When several images show the dish, \
             choose the largest photograph. Otherwise, and when there are no images, set found to false and all \
             numbers to 0.""";
 
@@ -87,7 +88,23 @@ public final class RecipePrompt {
             where the picture fades into the plain page. Set found to false and all numbers to 0 when the image \
             contains no photograph of a dish.""";
 
+    /**
+     * Where the tops of the letters point; the rotation is computed from it ({@link #rotation}). Asked for the rotation
+     * itself, the model mixed up clockwise and counter-clockwise.
+     */
+    static final List<String> TEXT_TOP = List.of("up", "right", "down", "left");
+
     private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    /** Degrees clockwise that turn an image upright whose letter tops point to {@code textTop}. */
+    static int rotation(String textTop) {
+        return switch (textTop) {
+            case "right" -> 270;
+            case "down" -> 180;
+            case "left" -> 90;
+            default -> 0;
+        };
+    }
 
     private RecipePrompt() {
     }
@@ -119,7 +136,7 @@ public final class RecipePrompt {
         dishPhoto.put("top", integer);
         dishPhoto.put("right", integer);
         dishPhoto.put("bottom", integer);
-        dishPhoto.put("rotation", integer);
+        dishPhoto.put("textTop", Map.of("type", "string", "enum", TEXT_TOP));
         properties.put("dishPhoto", object(dishPhoto));
 
         Map<String, Object> schema = new LinkedHashMap<>(object(properties));
@@ -237,8 +254,7 @@ public final class RecipePrompt {
         if (image == null || box == null) {
             return null;
         }
-        Integer rotation = bounded(node.get("rotation"), 0, 270);
-        return new DishPhoto(image, box, rotation == null || rotation % 90 != 0 ? 0 : rotation);
+        return new DishPhoto(image, box, rotation(node.path("textTop").asString("up")));
     }
 
     /** A plausible box from the edges in {@code node}, else null. */

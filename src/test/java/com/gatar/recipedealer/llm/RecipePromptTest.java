@@ -56,12 +56,13 @@ class RecipePromptTest {
     void dishPhotoBoxIsReadWhenFoundAndPlausible() {
         assertThat(RecipePrompt.parse("""
                 {"recipeFound": true, "dishPhoto": {"found": true, "image": 2, "left": 0, "top": 120, "right": 1000, "bottom": 480,
-                 "rotation": 270}}""")
+                 "textTop": "right"}}""")
                 .dishPhoto()).isEqualTo(new RecipePrompt.DishPhoto(2, new RecipePrompt.Box(0, 120, 1000, 480), 270));
         assertThat(RecipePrompt.parse("""
                 {"recipeFound": true, "dishPhoto": {"found": true, "image": 1, "left": 0, "top": 0, "right": 10, "bottom": 10,
-                 "rotation": 45}}""")
+                 "textTop": "sideways"}}""")
                 .dishPhoto().rotation()).isZero();
+        assertThat(RecipePrompt.TEXT_TOP).map(RecipePrompt::rotation).containsExactly(0, 270, 180, 90);
         assertThat(RecipePrompt.parse("""
                 {"recipeFound": true, "dishPhoto": {"found": false, "image": 0, "left": 0, "top": 0, "right": 0, "bottom": 0}}""")
                 .dishPhoto()).isNull();
@@ -97,7 +98,7 @@ class RecipePromptTest {
         Map<String, Object> dishPhoto = (Map<String, Object>) properties.get("dishPhoto");
         assertThat(dishPhoto).containsEntry("additionalProperties", false);
         assertThat((List<String>) dishPhoto.get("required"))
-                .containsExactly("found", "image", "left", "top", "right", "bottom", "rotation");
+                .containsExactly("found", "image", "left", "top", "right", "bottom", "textTop");
         Map<String, Object> secondLook = RecipePrompt.dishPhotoSchema();
         assertThat(secondLook).containsEntry("additionalProperties", false);
         assertThat((List<String>) secondLook.get("required")).containsExactly("found", "left", "top", "right", "bottom");

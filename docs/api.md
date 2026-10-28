@@ -343,7 +343,7 @@ Heuristic runs are listed with zero usage. Totals are computed from the runs on 
   "models": [{"model": "claude-haiku-5-5", "runs": 1, "inputTokens": 100, "cacheCreationInputTokens": 0,
               "cacheReadInputTokens": 0, "outputTokens": 50, "costUsd": 0.000035}],
   "runs": [{"runId": "…", "captureId": "…", "startedAt": "…", "finishedAt": "…",
-            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p3",
+            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p4",
             "step": "heuristic | haiku | sonnet", "purpose": "pipeline | forced | comparison",
             "model": "claude-haiku-5-5 | null", "status": "succeeded | rejected | awaiting_extraction | failed | running",
             "applied": false, "validationErrors": ["no_steps"], "errorType": "overloaded_error | null",

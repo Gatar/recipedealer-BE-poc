@@ -203,7 +203,7 @@ class LlmExtractionTest {
         // The first box is too tall (600 px; the dish is the top 400 px); the second look gets it with a margin
         // (the whole 1000 × 800 photo) and answers its top half.
         claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, "Szarlotka ze zdjęciem " + suffix,
-                        "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 750, \"rotation\": 90}"),
+                        "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 750, \"textTop\": \"left\"}"),
                 StubClaudeClient.response(HAIKU, "end_turn",
                         "{\"found\": true, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500}", 800, 0, 0, 30));
 
@@ -234,7 +234,7 @@ class LlmExtractionTest {
     @Test
     void failedSecondLookKeepsTheFirstBox() throws IOException {
         claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, "Szarlotka z pierwszym wycinkiem " + suffix,
-                        "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500, \"rotation\": 0}"),
+                        "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500, \"textTop\": \"up\"}"),
                 StubClaudeClient.error(LlmException.Kind.TRANSIENT, "overloaded_error", 529));
 
         UUID captureId = processNewWithPhoto("pierwszy");
@@ -249,11 +249,11 @@ class LlmExtractionTest {
     void newLookAtThePhotosChangesTheThumbnailAlsoWithoutANewRevision() throws IOException {
         String title = "Szarlotka bez zmian " + suffix;
         claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, title,
-                        "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500, \"rotation\": 0}"),
+                        "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500, \"textTop\": \"up\"}"),
                 StubClaudeClient.response(HAIKU, "end_turn",
                         "{\"found\": true, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 667}", 800, 0, 0, 30),
                 StubClaudeClient.recipeWithDishPhoto(HAIKU, title,
-                        "{\"found\": false, \"image\": 0, \"left\": 0, \"top\": 0, \"right\": 0, \"bottom\": 0, \"rotation\": 0}"));
+                        "{\"found\": false, \"image\": 0, \"left\": 0, \"top\": 0, \"right\": 0, \"bottom\": 0, \"textTop\": \"up\"}"));
         UUID captureId = processNewWithPhoto("bez-zmian");
         assertThat(thumbnail(captureId)).isNotNull();
 
@@ -267,7 +267,7 @@ class LlmExtractionTest {
     @Test
     void photoWithoutTheDishGivesNoThumbnail() throws IOException {
         claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, "Szarlotka bez zdjęcia " + suffix,
-                "{\"found\": false, \"image\": 0, \"left\": 0, \"top\": 0, \"right\": 0, \"bottom\": 0, \"rotation\": 0}"));
+                "{\"found\": false, \"image\": 0, \"left\": 0, \"top\": 0, \"right\": 0, \"bottom\": 0, \"textTop\": \"up\"}"));
 
         UUID captureId = processNewWithPhoto("tekst");
 

@@ -22,6 +22,8 @@ import com.gatar.recipedealer.recipe.RecipeRepository;
 import com.gatar.recipedealer.recipe.ResolutionRepository;
 import com.gatar.recipedealer.recipe.ResolutionService;
 
+import tools.jackson.databind.node.ObjectNode;
+
 /**
  * One cascade step of one capture: extract (outside any transaction), validate, then store the run and either apply
  * it (valid), enqueue the next step (invalid, a next step exists) or end the cascade with its best non-empty result
@@ -229,9 +231,12 @@ public class ProcessingService {
         List<StoredCandidate> candidates = new ArrayList<>();
         for (int i = 0; i < extracted.size(); i++) {
             RecipeCandidate guarded = ProvenanceGuard.apply(capture, extracted.get(i));
-            candidates.add(new StoredCandidate(i, capture.schemaVersion(), guarded.recipe(),
-                    RecipeContent.contentHash(guarded.recipe()), guarded.provenance(),
-                    ReviewPolicy.needsReview(guarded.recipe(), guarded.provenance()), keys));
+            // LLM answers have no photos: the page photo the phone found stays (a single recipe only)
+            ObjectNode recipe = extracted.size() == 1
+                    ? (ObjectNode) RecipeContent.keepingImagesOf(guarded.recipe(), capture.recipe()) : guarded.recipe();
+            candidates.add(new StoredCandidate(i, capture.schemaVersion(), recipe,
+                    RecipeContent.contentHash(recipe), guarded.provenance(),
+                    ReviewPolicy.needsReview(recipe, guarded.provenance()), keys));
         }
         return candidates;
     }

@@ -256,7 +256,7 @@ class LlmExtractionTest {
     }
 
     @Test
-    void newLookAtThePhotosChangesTheThumbnailAlsoWithoutANewRevision() throws IOException {
+    void newLookThatFindsNoDishKeepsTheThumbnail() throws IOException {
         String title = "Szarlotka bez zmian " + suffix;
         claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, title,
                         "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500}"),
@@ -266,13 +266,53 @@ class LlmExtractionTest {
                 StubClaudeClient.recipeWithDishPhoto(HAIKU, title,
                         "{\"found\": false, \"image\": 0, \"left\": 0, \"top\": 0, \"right\": 0, \"bottom\": 0}"));
         UUID captureId = processNewWithPhoto("bez-zmian");
-        assertThat(thumbnail(captureId)).isNotNull();
+        String before = thumbnail(captureId);
+        assertThat(before).isNotNull();
 
         assertThat(force(captureId)).hasStatus(202);
         worker.drain();
 
         assertThat(recipeOf(captureId)).containsEntry("revisions", 1L);
-        assertThat(thumbnail(captureId)).isNull();
+        assertThat(thumbnail(captureId)).isEqualTo(before);
+    }
+
+    @Test
+    void newLookThatFindsAnotherDishChangesTheThumbnail() throws IOException {
+        String title = "Szarlotka nowy wycinek " + suffix;
+        claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, title,
+                        "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500}"),
+                StubClaudeClient.response(HAIKU, "end_turn",
+                        "{\"found\": true, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 667, \"upright\": \"A\"}",
+                        800, 0, 0, 30),
+                StubClaudeClient.recipeWithDishPhoto(HAIKU, title,
+                        "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 500, \"bottom\": 500}"),
+                StubClaudeClient.response(HAIKU, "end_turn",
+                        "{\"found\": true, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 1000, \"upright\": \"A\"}",
+                        800, 0, 0, 30));
+        UUID captureId = processNewWithPhoto("nowy-wycinek");
+        String before = thumbnail(captureId);
+
+        assertThat(force(captureId)).hasStatus(202);
+        worker.drain();
+
+        assertThat(thumbnail(captureId)).isNotNull().isNotEqualTo(before);
+    }
+
+    @Test
+    void forcedReadingOfAWebRecipeKeepsItsPhoto() {
+        String title = "Szarlotka ze strony " + suffix;
+        claude.willAnswer(HAIKU, StubClaudeClient.recipe(HAIKU, title, 1000, 500, 0, 200),
+                StubClaudeClient.recipe(HAIKU, title + " poprawiona", 1000, 500, 0, 200));
+        // the phone found the page photo but no steps: Haiku reads it, its answer has no photos
+        UUID captureId = processNew(capture("zdjecie-strony", LlmExtractionTest::withoutSteps));
+        assertThat(recipeOf(captureId).get("content").toString()).contains("\"images\"");
+
+        assertThat(force(captureId)).hasStatus(202);
+        worker.drain();
+
+        var recipe = recipeOf(captureId);
+        assertThat(recipe).containsEntry("title", title + " poprawiona").containsEntry("revisions", 2L);
+        assertThat(recipe.get("content").toString()).contains("\"images\"");
     }
 
     @Test
@@ -402,6 +442,28 @@ class LlmExtractionTest {
 
         assertThat(recipeOf(captureId)).containsEntry("title", "Szarlotka poprawiona " + suffix)
                 .containsEntry("origin", "USER").containsEntry("revisions", 4L);
+    }
+
+    @Test
+    void forcedProposalKeepsThePhotoTheUserAdded() {
+        String title = "Szarlotka bez zdjęcia na stronie " + suffix;
+        claude.willAnswer(HAIKU, StubClaudeClient.recipe(HAIKU, title + " od Haiku", 100, 0, 0, 100));
+        UUID captureId = processNew(capture("bez-zdjecia", c -> c.withObject("recipe").remove("images")));
+        UUID recipeId = (UUID) recipeOf(captureId).get("id");
+        ObjectNode edited = (ObjectNode) JsonMapper.builder().build().readTree("{\"title\": \"" + title
+                + "\", \"ingredientGroups\": [{\"items\": [\"jabłka\"]}], \"images\": [\"https://example.com/szarlotka.jpg\"]}");
+        UUID userId = jdbc.sql("SELECT user_id FROM capture WHERE id = :id").param("id", captureId).query(UUID.class).single();
+        tx.executeWithoutResult(s -> revisions.addRevision(recipeId,
+                new RevisionService.Content(edited, 1, Origin.USER, null, null, userId, null, false), true));
+
+        assertThat(force(captureId)).hasStatus(202);
+        worker.drain();
+
+        // the user's head stays; the machine proposal on top of it keeps the photo
+        assertThat(recipeOf(captureId)).containsEntry("origin", "USER");
+        String proposal = jdbc.sql("SELECT content::text FROM recipe_revision WHERE recipe_id = :id ORDER BY created_at DESC LIMIT 1")
+                .param("id", recipeId).query(String.class).single();
+        assertThat(proposal).contains(title + " od Haiku").contains("https://example.com/szarlotka.jpg");
     }
 
     @Test

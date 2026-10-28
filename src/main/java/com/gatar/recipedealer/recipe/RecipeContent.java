@@ -41,6 +41,24 @@ public final class RecipeContent {
         return url.regionMatches(true, 0, "https://", 0, 8) || url.regionMatches(true, 0, "http://", 0, 7) ? url : null;
     }
 
+    public static boolean hasImages(JsonNode recipe) {
+        JsonNode images = recipe == null ? null : recipe.get("images");
+        return images != null && images.isArray() && !images.isEmpty();
+    }
+
+    /**
+     * {@code recipe} with the photos of {@code from} when it has none of its own: an LLM answer never carries photos,
+     * and a new reading of a recipe must not drop the photo it had.
+     */
+    public static JsonNode keepingImagesOf(JsonNode recipe, JsonNode from) {
+        if (hasImages(recipe) || !hasImages(from) || !recipe.isObject()) {
+            return recipe;
+        }
+        ObjectNode copy = ((ObjectNode) recipe).deepCopy();
+        copy.set("images", from.get("images").deepCopy());
+        return copy;
+    }
+
     public static List<String> ingredientLines(JsonNode recipe) {
         return lines(recipe, "ingredientGroups");
     }

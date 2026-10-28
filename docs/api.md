@@ -64,8 +64,9 @@ validated against it.
 - the photo `recipe.images[0]` (an http(s) URL), downloaded by the server in the background within about a minute
   after it becomes the head's photo; until then, or if the download fails, the next option applies;
 - else the newest photo of a capture behind the recipe:
-  - for photos and screenshots read by the LLM extraction: the photo of the dish the model found in them, cut out of
-    the original and turned upright; none when they show no dish (only the recipe text);
+  - for photos and screenshots read by the LLM extraction: the photo of the dish the newest reading that found one
+    cut out of the original and turned upright (a later reading that finds no dish keeps it); none when no reading
+    found a dish (only the recipe text);
   - for photos and screenshots no LLM read (the phone's result was complete): the attachment itself;
   - for a PDF attachment: the largest image of the first page that has one, found by the server in the background
     within about a minute; none when the PDF has no images;
@@ -263,7 +264,8 @@ recipe through `captureId` of its revisions, or from a stuck capture in the inbo
 
 The result takes the normal path: a capture that already updated a recipe updates it again (a new revision; it never
 moves a head the user wrote, it then stays a proposal); a stored decision is applied; otherwise the user decides. If
-no LLM step finds a complete recipe for a capture that was already applied, nothing changes.
+no LLM step finds a complete recipe for a capture that was already applied, nothing changes. LLM answers carry no
+photos: the result keeps the page photo the phone found, else the photos of the recipe's head.
 
 - **202** CaptureView, now `processing`.
 - **404** `not_found`.

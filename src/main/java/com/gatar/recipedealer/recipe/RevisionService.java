@@ -13,6 +13,7 @@ import com.gatar.recipedealer.web.ApiException;
 import com.gatar.recipedealer.web.NotFoundException;
 
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
 
 /**
  * The only place that creates revisions and moves heads.
@@ -21,6 +22,7 @@ import tools.jackson.databind.JsonNode;
  *       review (the new revision has the same content without {@code needsReview}).</li>
  *   <li>An explicit user action (resolution, edit) always moves the head.</li>
  *   <li>An automatic change never moves a head with origin {@code USER}; it is kept as a proposal.</li>
+ *   <li>An automatic change without photos keeps the head's photos.</li>
  * </ul>
  */
 @Service
@@ -39,6 +41,10 @@ public class RevisionService {
      */
     public record Content(JsonNode recipe, int schemaVersion, Origin origin, UUID runId, UUID captureId, UUID userId,
                           UUID deviceId, boolean needsReview) {
+
+        Content withRecipe(JsonNode other) {
+            return new Content(other, schemaVersion, origin, runId, captureId, userId, deviceId, needsReview);
+        }
     }
 
     public record Outcome(UUID recipeId, UUID revisionId, boolean created, boolean headMoved) {
@@ -57,6 +63,14 @@ public class RevisionService {
         if (head.deleted() || head.mergedInto() != null) {
             throw new ApiException(HttpStatus.CONFLICT, "recipe_gone",
                     "recipe " + recipeId + (head.deleted() ? " was deleted" : " was merged into " + head.mergedInto()));
+        }
+        if (content.origin() == Origin.MACHINE && !RecipeContent.hasImages(content.recipe())) {
+            // a new reading without photos (an LLM answer) keeps the recipe's photo
+            JsonNode images = head.headRevisionId() == null ? null : recipes.revisionImages(head.headRevisionId());
+            if (images != null && images.isArray()) {
+                content = content.withRecipe(RecipeContent.keepingImagesOf(content.recipe(),
+                        JsonNodeFactory.instance.objectNode().set("images", images)));
+            }
         }
         String hash = RecipeContent.contentHash(content.recipe());
         boolean confirmsReview = explicitUserAction && head.headNeedsReview() && !content.needsReview();

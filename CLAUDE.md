@@ -71,8 +71,12 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   Rotation (pages photographed sideways or upside down): the second look also gets the whole page turned 0/90/180/270°
   (A–D, 768 px) and picks the version whose text reads normally. Asked for the rotation in degrees or for the
   direction of the letters instead, Haiku and Sonnet both got sideways pages wrong (Sonnet: 2 of 2 on one page). The newest succeeded (non-comparison) LLM run of a capture
-  that judged its images decides: its cut-out or nothing (a photo of only text gives no thumbnail), refreshed after
-  every such run even without a new revision; captures no LLM run judged (heuristic) keep the raw attachment.
+  that found a dish gives the cut-out; a later run that finds none keeps it (user, 2026-10-28); no run found one →
+  no thumbnail (a photo of only text), refreshed after every such run even without a new revision; captures no LLM
+  run judged (heuristic) keep the raw attachment.
+- Photos in the content (user, 2026-10-28: a new reading must not lose the photo): LLM answers have no `images`, so a
+  single candidate keeps the capture's own `recipe.images` (the page photo; `ProcessingService.candidates`), and a
+  machine revision without `images` keeps the head's (`RevisionService.addRevision`).
 - Capture deletion (user, 2026-10-28; e.g. an invoice shared by mistake): `DELETE /v1/captures/{id}`
   (`CaptureDeletionService`) removes a capture that never became a recipe completely (rows, runs, decisions, and the
   blobs nothing else uses; files after the commit). 409 `capture_applied` / `extraction_in_progress`. The capture

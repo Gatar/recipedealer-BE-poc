@@ -246,6 +246,25 @@ class LlmExtractionTest {
     }
 
     @Test
+    void newLookAtThePhotosChangesTheThumbnailAlsoWithoutANewRevision() throws IOException {
+        String title = "Szarlotka bez zmian " + suffix;
+        claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, title,
+                        "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500, \"rotation\": 0}"),
+                StubClaudeClient.response(HAIKU, "end_turn",
+                        "{\"found\": true, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 667}", 800, 0, 0, 30),
+                StubClaudeClient.recipeWithDishPhoto(HAIKU, title,
+                        "{\"found\": false, \"image\": 0, \"left\": 0, \"top\": 0, \"right\": 0, \"bottom\": 0, \"rotation\": 0}"));
+        UUID captureId = processNewWithPhoto("bez-zmian");
+        assertThat(thumbnail(captureId)).isNotNull();
+
+        assertThat(force(captureId)).hasStatus(202);
+        worker.drain();
+
+        assertThat(recipeOf(captureId)).containsEntry("revisions", 1L);
+        assertThat(thumbnail(captureId)).isNull();
+    }
+
+    @Test
     void photoWithoutTheDishGivesNoThumbnail() throws IOException {
         claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, "Szarlotka bez zdjęcia " + suffix,
                 "{\"found\": false, \"image\": 0, \"left\": 0, \"top\": 0, \"right\": 0, \"bottom\": 0, \"rotation\": 0}"));

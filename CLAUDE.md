@@ -68,9 +68,9 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   (tested on cookbook photos: often too tall or cut), so the same model takes a second look
   (`RecipePrompt.DISH_PHOTO_PROMPT`, the box + 50 % margin on each side) and gives the exact edges; its usage is added
   to the run; if it fails, the first box stays. `rotation` (clockwise, judged by the text: pages photographed
-  sideways or upside down) turns the cut-out upright. The thumbnail of a revision
-  whose run judged the images is that cut-out or nothing (a photo of only text gives no thumbnail); revisions
-  without such a run (heuristic) keep the raw attachment as the photo.
+  sideways or upside down) turns the cut-out upright. The newest succeeded (non-comparison) LLM run of a capture
+  that judged its images decides: its cut-out or nothing (a photo of only text gives no thumbnail), refreshed after
+  every such run even without a new revision; captures no LLM run judged (heuristic) keep the raw attachment.
 - `DB_PASSWORD` stays as it is (Postgres is not published); never publish port 5432.
 
 ## Tags (agreed 2026-10-25)

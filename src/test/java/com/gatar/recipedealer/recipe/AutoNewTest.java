@@ -62,6 +62,9 @@ class AutoNewTest {
     ResolutionService resolutions;
 
     @Autowired
+    RecipeRepository recipes;
+
+    @Autowired
     TransactionTemplate tx;
 
     ProcessingService autoNew;
@@ -71,8 +74,8 @@ class AutoNewTest {
     void setUp() {
         token = TestAuth.enroll(mvc, "AutoNew", "phone");
         worker.drain();
-        autoNew = new ProcessingService(loader, cascade, processing, resolutionRepository, resolutions, jobs, pricing, tx,
-                new ProcessingProperties(true));
+        autoNew = new ProcessingService(loader, cascade, processing, resolutionRepository, resolutions, jobs, pricing,
+                recipes, tx, new ProcessingProperties(true));
     }
 
     /** A title no other test's recipe resembles. */

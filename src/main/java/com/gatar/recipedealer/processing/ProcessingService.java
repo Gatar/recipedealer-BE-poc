@@ -18,6 +18,7 @@ import com.gatar.recipedealer.llm.LlmUsage;
 import com.gatar.recipedealer.processing.ProcessingRepository.RunStatus;
 import com.gatar.recipedealer.recipe.RecipeContent;
 import com.gatar.recipedealer.recipe.RecipeKey;
+import com.gatar.recipedealer.recipe.RecipeRepository;
 import com.gatar.recipedealer.recipe.ResolutionRepository;
 import com.gatar.recipedealer.recipe.ResolutionService;
 
@@ -44,12 +45,14 @@ public class ProcessingService {
     private final ResolutionService resolutions;
     private final JobQueue jobs;
     private final LlmPricing pricing;
+    private final RecipeRepository recipes;
     private final TransactionTemplate tx;
     private final ProcessingProperties properties;
 
     public ProcessingService(CaptureLoader loader, ExtractionCascade cascade, ProcessingRepository processing,
                              ResolutionRepository resolutionRepository, ResolutionService resolutions, JobQueue jobs,
-                             LlmPricing pricing, TransactionTemplate tx, ProcessingProperties properties) {
+                             LlmPricing pricing, RecipeRepository recipes, TransactionTemplate tx,
+                             ProcessingProperties properties) {
         this.loader = loader;
         this.cascade = cascade;
         this.processing = processing;
@@ -57,6 +60,7 @@ public class ProcessingService {
         this.resolutions = resolutions;
         this.jobs = jobs;
         this.pricing = pricing;
+        this.recipes = recipes;
         this.tx = tx;
         this.properties = properties;
     }
@@ -125,6 +129,10 @@ public class ProcessingService {
                 } else {
                     endCascade(task, capture, finished);
                 }
+            }
+            if (!comparison && result.dishPhoto() != null) {
+                // A new look at the photos changes the thumbnail also when the recipe content stays the same.
+                recipes.refreshThumbnails(captureId);
             }
         });
         log.info("Processed capture {} ({} step {}) with {} {}: {} candidate(s){}", captureId, task.purpose().value(),

@@ -14,12 +14,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.gatar.recipedealer.IntegrationTest;
 import com.gatar.recipedealer.TestAuth;
 import com.gatar.recipedealer.TestCaptures;
+import com.gatar.recipedealer.llm.LlmPricing;
 import com.gatar.recipedealer.processing.CaptureLoader;
+import com.gatar.recipedealer.processing.ExtractionCascade;
+import com.gatar.recipedealer.processing.JobQueue;
 import com.gatar.recipedealer.processing.JobWorker;
 import com.gatar.recipedealer.processing.ProcessingProperties;
 import com.gatar.recipedealer.processing.ProcessingRepository;
 import com.gatar.recipedealer.processing.ProcessingService;
-import com.gatar.recipedealer.processing.RecipeExtractor;
 import com.jayway.jsonpath.JsonPath;
 
 /**
@@ -42,7 +44,13 @@ class AutoNewTest {
     CaptureLoader loader;
 
     @Autowired
-    RecipeExtractor extractor;
+    ExtractionCascade cascade;
+
+    @Autowired
+    JobQueue jobs;
+
+    @Autowired
+    LlmPricing pricing;
 
     @Autowired
     ProcessingRepository processing;
@@ -63,7 +71,7 @@ class AutoNewTest {
     void setUp() {
         token = TestAuth.enroll(mvc, "AutoNew", "phone");
         worker.drain();
-        autoNew = new ProcessingService(loader, extractor, processing, resolutionRepository, resolutions, tx,
+        autoNew = new ProcessingService(loader, cascade, processing, resolutionRepository, resolutions, jobs, pricing, tx,
                 new ProcessingProperties(true));
     }
 

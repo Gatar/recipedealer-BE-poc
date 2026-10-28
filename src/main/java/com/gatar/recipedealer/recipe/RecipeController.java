@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.gatar.recipedealer.auth.DevicePrincipal;
+import com.gatar.recipedealer.processing.ExtractionStatsService;
 import com.gatar.recipedealer.web.ETags;
 
 import tools.jackson.databind.JsonNode;
@@ -34,11 +35,20 @@ public class RecipeController {
     private final CandidateService candidates;
     private final RecipeQueryService queries;
     private final RecipeEditService edits;
+    private final ExtractionStatsService stats;
 
-    public RecipeController(CandidateService candidates, RecipeQueryService queries, RecipeEditService edits) {
+    public RecipeController(CandidateService candidates, RecipeQueryService queries, RecipeEditService edits,
+                            ExtractionStatsService stats) {
         this.candidates = candidates;
         this.queries = queries;
         this.edits = edits;
+        this.stats = stats;
+    }
+
+    /** Extraction runs of the recipe's captures with token usage and cost ("Statystyki dla nerdów"). */
+    @GetMapping("/{recipeId}/extraction-stats")
+    public ExtractionStatsService.RecipeStats extractionStats(@PathVariable UUID recipeId) {
+        return stats.forRecipe(recipeId);
     }
 
     @GetMapping("/candidates")

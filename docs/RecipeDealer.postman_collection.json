@@ -359,6 +359,26 @@
               }
             }
           }
+        },
+        {
+          "name": "Force LLM extraction",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/captures/{{captureId}}/llm-extraction",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "captures",
+                "{{captureId}}",
+                "llm-extraction"
+              ]
+            },
+            "description": "202 CaptureView (processing); 404; 409 extraction_in_progress / no_llm_input; 503 llm_unavailable."
+          }
         }
       ]
     },
@@ -662,6 +682,26 @@
                 }
               }
             }
+          }
+        },
+        {
+          "name": "Extraction stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/recipes/{{recipeId}}/extraction-stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recipes",
+                "{{recipeId}}",
+                "extraction-stats"
+              ]
+            },
+            "description": "200 totals, per-model usage and every run of the recipe's captures; 404."
           }
         }
       ]
@@ -1211,6 +1251,116 @@
               ]
             },
             "description": "204."
+          }
+        },
+        {
+          "name": "Compare models",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/llm-comparisons",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "llm-comparisons"
+              ]
+            },
+            "description": "202 {queued}; comparison runs are never applied. 400; 404; 503 llm_unavailable.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"captureIds\": [\n    \"{{captureId}}\"\n  ],\n  \"steps\": [\n    \"haiku\",\n    \"sonnet\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Comparison report",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/llm-comparisons?captureIds={{captureId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "llm-comparisons"
+              ],
+              "query": [
+                {
+                  "key": "captureIds",
+                  "value": "{{captureId}}"
+                }
+              ]
+            },
+            "description": "200 every run of each capture side by side; 404."
+          }
+        },
+        {
+          "name": "Reprocess with LLM",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/llm-extractions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "llm-extractions"
+              ]
+            },
+            "description": "202 {queued, skipped}; either captureIds or reason. 400; 503 llm_unavailable.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"AWAITING_EXTRACTION\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Check API key",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/api-key-check",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "api-key-check"
+              ]
+            },
+            "description": "200 check result; pings DEADMAN_API_KEY_URL on success."
           }
         }
       ],

@@ -73,7 +73,8 @@ A recipe whose thumbnail arrives later comes again in the sync feed.
 ```json
 {
   "captureId": "…", "status": "accepted | processing | needs_decision | needs_attention | done",
-  "reason": "AWAITING_EXTRACTION | PROCESSING_FAILED | TARGET_GONE | null", "message": "… | null",
+  "reason": "AWAITING_EXTRACTION | PROCESSING_FAILED | LLM_UNAVAILABLE | LLM_REQUEST_REJECTED | TARGET_GONE | null",
+  "message": "… | null",
   "recipes": [{"recipeId": "…", "title": "…"}],
   "candidates": [{"index": 0, "title": "…", "ingredientCount": 9, "stepCount": 5, "needsReview": false,
                   "urls": ["https://…"], "resolution": "NEW | UPDATE", "targetRecipeId": "…"}],
@@ -86,7 +87,18 @@ A recipe whose thumbnail arrives later comes again in the sync feed.
 - `reason`:
   - `AWAITING_EXTRACTION`: nothing could be extracted yet.
   - `PROCESSING_FAILED`: processing failed after its retries.
+  - `LLM_UNAVAILABLE`: automatic extraction could not run (the server's Claude API key is missing or invalid, or the
+    account has no credit). Not retried; force extraction again once it is fixed.
+  - `LLM_REQUEST_REJECTED`: the Claude API refused this capture's request (e.g. an attachment it cannot read).
   - `TARGET_GONE`: the recipe chosen with UPDATE was deleted; decide again.
+
+**Extraction cascade.** Processing tries the steps in order and stops at the first result that passes validation
+(title, at least one ingredient and one step; for LLM steps also a complete, schema-conforming answer):
+the phone's own result (`heuristic`), then Claude Haiku (`haiku`), then Claude Sonnet (`sonnet`). LLM steps read the
+capture's attachments (photos, screenshots, PDFs) and the text the phone read (`raw`). When no step passes, the best
+non-empty result is used and marked `needsReview`; when every result is empty, the capture waits with
+`AWAITING_EXTRACTION`. LLM results always need review. Fields the user edited on the phone (provenance `user`) are
+never changed. Without an API key on the server the cascade ends after the heuristic.
 
 **Tag catalog** (`GET /v1/tags` and every catalog change):
 
@@ -238,6 +250,21 @@ Responses:
 - **409** `already_resolved`: a different decision was already stored.
 - **409** `recipe_gone`: the UPDATE target does not exist or was deleted.
 
+### POST /v1/captures/{captureId}/llm-extraction
+
+Runs the extraction cascade again, starting at the first LLM step (Claude Haiku). No body. The app reaches it from a
+recipe through `captureId` of its revisions, or from a stuck capture in the inbox.
+
+The result takes the normal path: a capture that already updated a recipe updates it again (a new revision; it never
+moves a head the user wrote, it then stays a proposal); a stored decision is applied; otherwise the user decides. If
+no LLM step finds a complete recipe for a capture that was already applied, nothing changes.
+
+- **202** CaptureView, now `processing`.
+- **404** `not_found`.
+- **409** `extraction_in_progress`: the capture is being processed (a job is queued or running).
+- **409** `no_llm_input`: the capture has no attachment or text an LLM could read.
+- **503** `llm_unavailable`: the server has no Claude API key.
+
 ## Recipes
 
 ### GET /v1/recipes/candidates
@@ -296,6 +323,38 @@ All revisions, newest first:
 
 Fields without a value (`parentId`, `runId`, `captureId`, `userName`) are omitted. A non-head revision newer than the
 head is a proposal: a machine update the user has not accepted. **200** · **404**.
+
+### GET /v1/recipes/{recipeId}/extraction-stats
+
+Extraction usage of the recipe ("Statystyki dla nerdów"): every processing run of the captures behind the recipe
+(the captures of its revisions and decisions), including rejected cascade steps, forced runs and admin comparisons.
+Heuristic runs are listed with zero usage. Totals are computed from the runs on every request.
+
+```json
+{
+  "recipeId": "…",
+  "totals": {"runs": 3, "llmRuns": 2, "inputTokens": 2100, "cacheCreationInputTokens": 0,
+             "cacheReadInputTokens": 1000, "outputTokens": 350, "costUsd": 0.007135},
+  "models": [{"model": "claude-haiku-5-5", "runs": 1, "inputTokens": 100, "cacheCreationInputTokens": 0,
+              "cacheReadInputTokens": 0, "outputTokens": 50, "costUsd": 0.000035}],
+  "runs": [{"runId": "…", "captureId": "…", "startedAt": "…", "finishedAt": "…",
+            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p1",
+            "step": "heuristic | haiku | sonnet", "purpose": "pipeline | forced | comparison",
+            "model": "claude-haiku-5-5 | null", "status": "succeeded | rejected | awaiting_extraction | failed | running",
+            "applied": false, "validationErrors": ["no_steps"], "errorType": "overloaded_error | null",
+            "stopReason": "end_turn | max_tokens | refusal | null", "inputTokens": 100,
+            "cacheCreationInputTokens": 0, "cacheReadInputTokens": 0, "outputTokens": 50, "latencyMs": 2100,
+            "costUsd": 0.000035}]
+}
+```
+
+- `runs`: oldest first. `applied`: the run's result became a revision of this recipe. `status` `rejected`: the run
+  failed validation (`validationErrors`), the next step ran. `failed`: the call failed (`errorType`), e.g. a transient
+  error that was retried.
+- `costUsd`: computed with the prices configured when the run finished; `null` in a run for a model without a price
+  (counted as 0 in sums). `latencyMs` is `null` for heuristic runs.
+
+**200** · **404** (also for a deleted or merged recipe).
 
 ### POST /v1/recipes/{recipeId}/revisions
 
@@ -492,3 +551,50 @@ Downloads the ZIP: **200** `application/zip` with `Content-Disposition: attachme
 ### DELETE /v1/admin/backups/{name}
 
 **204** · **404**.
+
+### POST /v1/admin/llm-comparisons
+
+Model comparison: runs the given LLM steps for each capture as comparison runs. They are stored for the report only:
+never applied, they never change the capture's state, and later decisions and reprocessing ignore them.
+
+```json
+{"captureIds": ["…"], "steps": ["haiku", "sonnet"]}
+```
+
+- **202** `{"queued": [{"captureId": "…", "step": "haiku", "jobId": "…"}]}`; the runs follow within seconds.
+- **400** `invalid_request`: empty lists, more than 200 captures, or an unknown step.
+- **404** `not_found`: a capture does not exist (nothing is queued).
+- **503** `llm_unavailable`.
+
+### GET /v1/admin/llm-comparisons
+
+Query `captureIds` (comma-separated). Every run of each capture side by side:
+
+```json
+[{"captureId": "…", "sourceType": "IMAGE", "status": "needs_attention", "reason": "AWAITING_EXTRACTION",
+  "runs": [{"run": { … }, "cacheHit": true, "candidates": [{ "title": "…", … }]}]}]
+```
+
+`run` has the fields of a run in `GET /v1/recipes/{recipeId}/extraction-stats` (`applied`: the run became a revision
+of any recipe); `candidates` are the extracted recipes. **200** · **404** `not_found`.
+
+### POST /v1/admin/llm-extractions
+
+Reprocessing: the cascade from the first LLM step, as `POST /v1/captures/{captureId}/llm-extraction`, for several
+captures. Body: either `{"captureIds": ["…"]}` or `{"reason": "AWAITING_EXTRACTION"}` (every capture whose state has
+that reason).
+
+- **202** `{"queued": ["…"], "skipped": [{"captureId": "…", "error": "not_found | extraction_in_progress | no_llm_input", "message": "…"}]}`.
+- **400** `invalid_request`: both or neither of `captureIds` and `reason`, or more than 200 captures.
+- **503** `llm_unavailable`.
+
+### POST /v1/admin/api-key-check
+
+Runs the API key check now: a minimal Claude request (`max_tokens: 0`) that succeeds only if the key authenticates
+and the account can serve requests. On success the dead man's switch URL (`DEADMAN_API_KEY_URL`) is pinged, as by
+the daily scheduled check. Every check is recorded.
+
+**200** `{"id": "…", "checkedAt": "…", "success": true, "model": "claude-haiku-5-5", "errorType": null,
+"httpStatus": null, "inputTokens": 8, "outputTokens": 0, "costUsd": 0.000001, "latencyMs": 450, "pinged": true}`;
+on failure `success: false` with `errorType` (e.g. `authentication_error`, `billing_error`, `no_api_key`) and
+`httpStatus`.

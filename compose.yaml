@@ -37,6 +37,10 @@ services:
       RECIPEDEALER_ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH must be set in .env}
       # Household registration code for POST /v1/auth/register; empty disables registration.
       REGISTRATION_CODE: ${REGISTRATION_CODE:-}
+      # Claude API key for LLM extraction; empty disables the LLM steps (the cascade stops after the heuristic).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Dead man's switch pinged after each successful daily API key check; empty disables the check.
+      DEADMAN_API_KEY_URL: ${DEADMAN_API_KEY_URL:-}
     volumes:
       - ${DATA_DIR:-/srv/recipedealer}/blobs:/data/blobs
       # On-request backups (POST /v1/admin/backups); owned by uid 10001 like blobs.

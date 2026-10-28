@@ -1,0 +1,73 @@
+package com.gatar.recipedealer.llm;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.util.List;
+import java.util.Map;
+
+import org.junit.jupiter.api.Test;
+
+import tools.jackson.databind.json.JsonMapper;
+
+class RecipePromptTest {
+
+    @Test
+    void outputIsMappedToTheRecipeDtoWithLlmProvenance() {
+        var parsed = RecipePrompt.parse("""
+                {"recipeFound": true, "title": " Szarlotka babci ", "language": "pl",
+                 "servings": {"text": "12 kawałków", "count": 12},
+                 "times": {"prepMinutes": 30, "cookMinutes": 50, "totalMinutes": null},
+                 "ingredientGroups": [{"name": "Ciasto", "items": ["300 g mąki", " ", "200 g masła"]},
+                                      {"name": "Pusty", "items": []}],
+                 "stepGroups": [{"name": null, "items": ["Zagnieść ciasto.", "Piec 50 minut."]}],
+                 "notes": ["Najlepsza na drugi dzień."]}""");
+
+        assertThat(parsed.recipeFound()).isTrue();
+        assertThat(JsonMapper.builder().build().writeValueAsString(parsed.recipe())).isEqualTo("""
+                {"title":"Szarlotka babci","language":"pl","servings":{"text":"12 kawałków","count":12},\
+                "times":{"prepMinutes":30,"cookMinutes":50},\
+                "ingredientGroups":[{"name":"Ciasto","items":["300 g mąki","200 g masła"]}],\
+                "stepGroups":[{"name":null,"items":["Zagnieść ciasto.","Piec 50 minut."]}],\
+                "notes":["Najlepsza na drugi dzień."]}""");
+        assertThat(parsed.provenance()).containsOnlyKeys("title", "language", "servings", "prepMinutes", "cookMinutes",
+                "ingredients", "steps", "notes").allSatisfy((field, stage) -> assertThat(stage).isEqualTo("llm"));
+    }
+
+    @Test
+    void implausibleNumbersAreDroppedNotFailed() {
+        var parsed = RecipePrompt.parse("""
+                {"recipeFound": true, "title": "X", "servings": {"text": null, "count": 0},
+                 "times": {"prepMinutes": -5, "cookMinutes": 999999, "totalMinutes": 20},
+                 "ingredientGroups": [], "stepGroups": [], "notes": []}""");
+
+        assertThat(parsed.recipe().has("servings")).isFalse();
+        assertThat(parsed.recipe().path("times").propertyNames()).containsExactly("totalMinutes");
+    }
+
+    @Test
+    void noRecipeFoundAndInvalidOutputAreReported() {
+        assertThat(RecipePrompt.parse("{\"recipeFound\": false, \"title\": null}").recipeFound()).isFalse();
+        assertThatThrownBy(() -> RecipePrompt.parse("{\"title\": \"cut off")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RecipePrompt.parse("[]")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void schemaFollowsTheStructuredOutputRules() {
+        Map<String, Object> schema = RecipePrompt.schema();
+        assertThat(schema).containsEntry("additionalProperties", false);
+        Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+        assertThat((List<String>) schema.get("required")).containsExactlyElementsOf(properties.keySet());
+        assertThat(properties).doesNotContainKey("images");
+        Map<String, Object> group = (Map<String, Object>) ((Map<String, Object>) schema.get("$defs")).get("group");
+        assertThat(group).containsEntry("additionalProperties", false);
+    }
+
+    @Test
+    void systemPromptIsStaticAndLongEnoughToCache() {
+        // The minimum cacheable prefix of Claude Haiku 5.5 / Sonnet 5.5 is 512 tokens (~4 characters per token).
+        assertThat(RecipePrompt.SYSTEM_PROMPT.length()).isGreaterThan(512 * 4);
+        assertThat(RecipePrompt.SYSTEM_PROMPT).doesNotContain("%s").doesNotContainPattern("\\d{4}-\\d{2}-\\d{2}");
+    }
+}

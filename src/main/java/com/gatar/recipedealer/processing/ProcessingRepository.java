@@ -1,6 +1,8 @@
 package com.gatar.recipedealer.processing;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -10,6 +12,7 @@ import org.springframework.stereotype.Repository;
 
 import com.gatar.recipedealer.capture.CaptureStatus;
 import com.gatar.recipedealer.common.Ids;
+import com.gatar.recipedealer.llm.LlmUsage;
 import com.gatar.recipedealer.recipe.RecipeKey;
 import com.gatar.recipedealer.web.NotFoundException;
 
@@ -33,7 +36,8 @@ public class ProcessingRepository {
         this.jsonMapper = jsonMapper;
     }
 
-    public enum RunStatus { RUNNING, SUCCEEDED, AWAITING_EXTRACTION, FAILED }
+    /** {@code REJECTED}: finished but failed validation; its candidates are kept and not applied (unless promoted). */
+    public enum RunStatus { RUNNING, SUCCEEDED, AWAITING_EXTRACTION, REJECTED, FAILED }
 
     public record Run(UUID id, RunStatus status) {
     }
@@ -57,25 +61,70 @@ public class ProcessingRepository {
                 .update();
     }
 
-    public UUID startRun(UUID captureId, RecipeExtractor extractor) {
+    public UUID startRun(ProcessingTask task, RecipeExtractor extractor) {
         UUID id = Ids.newId();
         jdbc.sql("""
-                        INSERT INTO processing_run (id, capture_id, extractor_name, extractor_version, status)
-                        VALUES (:id, :captureId, :name, :version, 'running')""")
+                        INSERT INTO processing_run (id, capture_id, extractor_name, extractor_version, status, purpose, step,
+                                                    cascade_id)
+                        VALUES (:id, :captureId, :name, :version, 'running', :purpose, :step, :cascadeId)""")
                 .param("id", id)
-                .param("captureId", captureId)
+                .param("captureId", task.captureId())
                 .param("name", extractor.name())
                 .param("version", extractor.version())
+                .param("purpose", task.purpose().value())
+                .param("step", task.step())
+                .param("cascadeId", task.cascadeId())
                 .update();
         return id;
     }
 
-    public void finishRun(UUID runId, RunStatus status, String error) {
-        jdbc.sql("UPDATE processing_run SET status = :status, error = :error, finished_at = now() WHERE id = :id")
+    /** A run that could not finish (exception); {@code errorType}: e.g. the API error type. */
+    public void failRun(UUID runId, String error, String errorType) {
+        jdbc.sql("UPDATE processing_run SET status = 'failed', error = :error, error_type = :errorType, finished_at = now() WHERE id = :id")
                 .param("id", runId)
-                .param("status", status.name().toLowerCase(java.util.Locale.ROOT))
                 .param("error", error)
+                .param("errorType", errorType)
                 .update();
+    }
+
+    /** {@code usage} and {@code cost}: null for local extractors. */
+    public void finishRun(UUID runId, RunStatus status, List<String> validationErrors, LlmUsage usage, BigDecimal cost) {
+        jdbc.sql("""
+                        UPDATE processing_run SET status = :status, finished_at = now(),
+                               validation_errors = string_to_array(:errors, '|'), model = :model, stop_reason = :stopReason,
+                               input_tokens = :input, cache_creation_input_tokens = :cacheWrite,
+                               cache_read_input_tokens = :cacheRead, output_tokens = :output, latency_ms = :latency,
+                               cost_usd = :cost
+                        WHERE id = :id""")
+                .param("id", runId)
+                .param("status", status.name().toLowerCase(Locale.ROOT))
+                .param("errors", validationErrors.isEmpty() ? null : String.join("|", validationErrors))
+                .param("model", usage == null ? null : usage.model())
+                .param("stopReason", usage == null ? null : usage.stopReason())
+                .param("input", usage == null ? null : usage.inputTokens())
+                .param("cacheWrite", usage == null ? null : usage.cacheCreationInputTokens())
+                .param("cacheRead", usage == null ? null : usage.cacheReadInputTokens())
+                .param("output", usage == null ? null : usage.outputTokens())
+                .param("latency", usage == null ? null : usage.latencyMs())
+                .param("cost", cost)
+                .update();
+    }
+
+    /** The fallback chose a rejected run as the cascade's result. */
+    public void promote(UUID runId) {
+        jdbc.sql("UPDATE processing_run SET status = 'succeeded' WHERE id = :id AND status = 'rejected'")
+                .param("id", runId)
+                .update();
+    }
+
+    /** Rejected runs of a cascade, oldest first. */
+    public List<UUID> rejectedRuns(UUID cascadeId) {
+        return jdbc.sql("""
+                        SELECT id FROM processing_run WHERE cascade_id = :id AND status = 'rejected'
+                        ORDER BY started_at, id""")
+                .param("id", cascadeId)
+                .query(UUID.class)
+                .list();
     }
 
     public void insertCandidate(UUID runId, StoredCandidate candidate) {
@@ -95,15 +144,18 @@ public class ProcessingRepository {
                 .update();
     }
 
-    /** The newest run that produced a result (candidates), if any. */
+    /**
+     * The newest run that produced the capture's current result (candidates), if any. Rejected cascade steps and
+     * comparison runs are never the current result.
+     */
     public Optional<Run> latestCompletedRun(UUID captureId) {
         return jdbc.sql("""
                         SELECT id, status FROM processing_run
-                        WHERE capture_id = :id AND status IN ('succeeded', 'awaiting_extraction')
-                        ORDER BY started_at DESC, id DESC LIMIT 1""")
+                        WHERE capture_id = :id AND status IN ('succeeded', 'awaiting_extraction') AND purpose <> 'comparison'
+                        ORDER BY finished_at DESC, started_at DESC, id DESC LIMIT 1""")
                 .param("id", captureId)
                 .query((rs, n) -> new Run(rs.getObject("id", UUID.class),
-                        RunStatus.valueOf(rs.getString("status").toUpperCase(java.util.Locale.ROOT))))
+                        RunStatus.valueOf(rs.getString("status").toUpperCase(Locale.ROOT))))
                 .optional();
     }
 

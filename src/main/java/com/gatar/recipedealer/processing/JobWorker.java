@@ -7,7 +7,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.gatar.recipedealer.capture.CaptureStatus;
 
-/** Runs queued jobs; failures are retried with backoff and end in {@code needs_attention}. */
+/**
+ * Runs queued jobs; failures are retried with backoff and end in {@code needs_attention}. A
+ * {@link NonRetryableProcessingException} ends the job at once. Comparison jobs never change the capture state.
+ */
 @Component
 public class JobWorker {
 
@@ -43,16 +46,27 @@ public class JobWorker {
             return false;
         }
         var job = claimed.get();
+        boolean comparison = job.purpose() == Purpose.COMPARISON;
         try {
-            processing.process(job.captureId());
+            processing.process(job.task());
             queue.complete(job.id());
+        } catch (NonRetryableProcessingException e) {
+            queue.fail(job, e.reason() + ": " + e.getMessage(), true);
+            log.error("Job {} for capture {} ({} step {}) failed and will not be retried: {}", job.id(), job.captureId(),
+                    job.purpose().value(), job.step(), e.getMessage());
+            if (!comparison) {
+                tx.executeWithoutResult(status -> repository.setState(job.captureId(), CaptureStatus.NEEDS_ATTENTION,
+                        e.reason(), e.getMessage()));
+            }
         } catch (Exception e) {
             String error = e.getClass().getSimpleName() + ": " + e.getMessage();
             var failure = queue.fail(job, error);
             if (failure.terminal()) {
                 log.error("Job {} for capture {} failed {} times, giving up", job.id(), job.captureId(), failure.attempts(), e);
-                tx.executeWithoutResult(status -> repository.setState(job.captureId(), CaptureStatus.NEEDS_ATTENTION,
-                        PROCESSING_FAILED, "Processing failed after " + failure.attempts() + " attempts: " + error));
+                if (!comparison) {
+                    tx.executeWithoutResult(status -> repository.setState(job.captureId(), CaptureStatus.NEEDS_ATTENTION,
+                            PROCESSING_FAILED, "Processing failed after " + failure.attempts() + " attempts: " + error));
+                }
             } else {
                 log.warn("Job {} for capture {} failed (attempt {}), will retry", job.id(), job.captureId(), failure.attempts(), e);
             }

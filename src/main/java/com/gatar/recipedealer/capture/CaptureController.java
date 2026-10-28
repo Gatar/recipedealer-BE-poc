@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.gatar.recipedealer.auth.DevicePrincipal;
+import com.gatar.recipedealer.processing.LlmExtractionService;
 import com.gatar.recipedealer.recipe.ResolutionRepository.Action;
 import com.gatar.recipedealer.recipe.ResolutionService;
 import com.gatar.recipedealer.web.ApiException;
@@ -35,11 +37,14 @@ public class CaptureController {
     private final CaptureIngestService ingest;
     private final CaptureQueryService queries;
     private final ResolutionService resolutions;
+    private final LlmExtractionService llm;
 
-    public CaptureController(CaptureIngestService ingest, CaptureQueryService queries, ResolutionService resolutions) {
+    public CaptureController(CaptureIngestService ingest, CaptureQueryService queries, ResolutionService resolutions,
+                             LlmExtractionService llm) {
         this.ingest = ingest;
         this.queries = queries;
         this.resolutions = resolutions;
+        this.llm = llm;
     }
 
     /** Multipart: part {@code capture} (JSON) plus one part per attachment, named like {@code attachments[].name}. */
@@ -71,6 +76,13 @@ public class CaptureController {
                                @RequestBody ResolutionRequest request, @AuthenticationPrincipal DevicePrincipal device) {
         resolutions.request(captureId, index, request.action(), request.recipeId(), request.tags(), device);
         return queries.view(captureId);
+    }
+
+    /** Runs the extraction cascade again from the first LLM step; 202 with the capture (now {@code processing}). */
+    @PostMapping("/{captureId}/llm-extraction")
+    public ResponseEntity<CaptureView> forceLlmExtraction(@PathVariable UUID captureId) {
+        llm.force(captureId);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(queries.view(captureId));
     }
 
     private static Set<CaptureStatus> parseStatuses(String value) {

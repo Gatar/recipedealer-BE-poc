@@ -30,3 +30,42 @@ recipedealer:
     # Without a code, POST /v1/auth/register answers 403 registration_disabled.
     code: ${REGISTRATION_CODE:}
     max-users: ${MAX_USERS:10}
+  llm:
+    # Without a key the LLM steps are disabled: the cascade stops after the heuristic.
+    api-key: ${ANTHROPIC_API_KEY:}
+    # timeout × (max-retries + 1) must stay below recipedealer.worker.lease (10 min).
+    timeout: 150s
+    max-retries: 2
+    max-tokens: 16000
+    steps:
+      - name: haiku
+        model: claude-haiku-5-5
+        effort: medium
+      - name: sonnet
+        model: claude-sonnet-5-5
+        effort: medium
+    # USD per million tokens, from https://platform.claude.com/docs/en/about-claude/pricing (2026-10-28).
+    # cache-write: 5-minute cache writes (the only TTL used).
+    pricing:
+      claude-haiku-5-5:
+        input: 0.10
+        cache-write: 0.125
+        cache-read: 0.01
+        output: 0.50
+        long-context:
+          above-input-tokens: 100000
+          input: 0.50
+          cache-write: 0.625
+          cache-read: 0.05
+          output: 2.50
+      claude-sonnet-5-5:
+        input: 2.00
+        cache-write: 2.50
+        cache-read: 0.10
+        output: 10.00
+  deadman:
+    api-key:
+      # e.g. a healthchecks.io check URL, pinged after each successful API key check; empty disables the check.
+      url: ${DEADMAN_API_KEY_URL:}
+      cron: ${DEADMAN_API_KEY_CRON:0 0 6 * * *}
+      timeout: 10s

@@ -10,7 +10,8 @@ import tools.jackson.databind.JsonNode;
 /** Completeness is not correctness: ingredients or steps from weak stages must be reviewed by a person. */
 public final class ReviewPolicy {
 
-    static final Set<String> WEAK_STAGES = Set.of("heuristic", "ocr", "page");
+    /** {@code llm}: every LLM result needs review. */
+    static final Set<String> WEAK_STAGES = Set.of("heuristic", "ocr", "page", "llm");
 
     private ReviewPolicy() {
     }

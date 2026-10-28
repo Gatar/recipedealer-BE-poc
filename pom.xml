@@ -23,6 +23,8 @@
         <java-uuid-generator.version>5.2.0</java-uuid-generator.version>
         <!-- 3.0.6 is built against Jackson 3.1.x, the line managed by Spring Boot 4.1 (3.0.7+ needs Jackson 3.2). -->
         <json-schema-validator.version>3.0.6</json-schema-validator.version>
+        <!-- Uses Jackson 2 (com.fasterxml), managed by Spring Boot next to Jackson 3 (tools.jackson). -->
+        <anthropic-java.version>3.3.0</anthropic-java.version>
     </properties>
 
     <dependencies>
@@ -64,6 +66,11 @@
             <groupId>com.fasterxml.uuid</groupId>
             <artifactId>java-uuid-generator</artifactId>
             <version>${java-uuid-generator.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.anthropic</groupId>
+            <artifactId>anthropic-java</artifactId>
+            <version>${anthropic-java.version}</version>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
@@ -109,6 +116,16 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <!-- Image scaling (ImageIO) in unit tests; the application sets it at startup. -->
+                        <java.awt.headless>true</java.awt.headless>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
         </plugins>
     </build>

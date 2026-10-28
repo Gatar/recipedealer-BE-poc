@@ -24,7 +24,8 @@ import tools.jackson.databind.JsonNode;
  * What the LLM sees of a capture: its attachments as native content blocks (images, PDFs) followed by the text the
  * phone already read and a little source metadata. Images larger than {@code maxImageEdge} are downscaled; tall
  * screenshots (up to 20,000 px) are cut into overlapping tiles, because the API would shrink them to an unreadable
- * width. Parts that would push the request over {@code maxRequestBytes} are left out.
+ * width. Parts that would push the request over {@code maxRequestBytes} are left out. Images are numbered in their
+ * labels, so the model can point at one (the dish photo).
  */
 @Component
 public class LlmInputBuilder {
@@ -40,6 +41,23 @@ public class LlmInputBuilder {
     private final BlobStore blobs;
     private final LlmProperties properties;
 
+    /** What is sent for a capture, and where each numbered image comes from. */
+    public record Input(List<ClaudeClient.Part> parts, List<SentImage> images) {
+    }
+
+    /**
+     * Image {@code number} as the model sees it: {@code region} is the part of the original attachment it shows, in
+     * the original's pixels; null when the original cannot be decoded (sent as it is).
+     */
+    public record SentImage(int number, Capture.Attachment attachment, Region region) {
+    }
+
+    public record Region(int x, int y, int width, int height) {
+    }
+
+    record Prepared(ClaudeClient.Image image, Region region) {
+    }
+
     public LlmInputBuilder(BlobStore blobs, LlmProperties properties) {
         this.blobs = blobs;
         this.properties = properties;
@@ -54,8 +72,9 @@ public class LlmInputBuilder {
         return isPdf(attachment) ? base64Size(attachment.sizeBytes()) <= properties.maxRequestBytes() : isImage(attachment);
     }
 
-    public List<ClaudeClient.Part> build(Capture capture) throws IOException {
+    public Input build(Capture capture) throws IOException {
         List<ClaudeClient.Part> parts = new ArrayList<>();
+        List<SentImage> sent = new ArrayList<>();
         long budget = properties.maxRequestBytes() - 200_000;
         int imageCount = 0;
         for (Capture.Attachment attachment : capture.attachments()) {
@@ -71,22 +90,23 @@ public class LlmInputBuilder {
                 parts.add(new ClaudeClient.Pdf(bytes));
                 budget -= base64Size(bytes.length);
             } else if (isImage(attachment)) {
-                List<ClaudeClient.Image> images = images(capture, attachment, read(attachment));
+                List<Prepared> images = images(capture, attachment, read(attachment));
                 for (int i = 0; i < images.size(); i++) {
-                    ClaudeClient.Image image = images.get(i);
+                    ClaudeClient.Image image = images.get(i).image();
                     long size = base64Size(image.data().length);
                     if (size > budget || imageCount >= MAX_IMAGES) {
                         log.info("Capture {}: image {} left out (request size or image count limit)", capture.id(),
                                 attachment.name());
                         break;
                     }
-                    String label = images.size() == 1 ? "Image " + attachment.name() + ":"
-                            : "Image " + attachment.name() + ", part " + (i + 1) + " of " + images.size()
-                              + " (top to bottom, parts overlap slightly):";
+                    imageCount++;
+                    String label = images.size() == 1 ? "Image " + imageCount + ", " + attachment.name() + ":"
+                            : "Image " + imageCount + ", " + attachment.name() + ", part " + (i + 1) + " of "
+                              + images.size() + " (top to bottom, parts overlap slightly):";
                     parts.add(new ClaudeClient.Text(label));
                     parts.add(image);
+                    sent.add(new SentImage(imageCount, attachment, images.get(i).region()));
                     budget -= size;
-                    imageCount++;
                 }
             }
         }
@@ -100,7 +120,7 @@ public class LlmInputBuilder {
         }
         text.append("Extract the recipe from the source above.");
         parts.add(new ClaudeClient.Text(metadata(capture) + text));
-        return parts;
+        return new Input(parts, sent);
     }
 
     private static String metadata(Capture capture) {
@@ -135,20 +155,20 @@ public class LlmInputBuilder {
         }
     }
 
-    private byte[] read(Capture.Attachment attachment) throws IOException {
+    byte[] read(Capture.Attachment attachment) throws IOException {
         try (InputStream in = blobs.open(attachment.blobSha256())) {
             return in.readAllBytes();
         }
     }
 
     /** The original when it is within the limits, else a downscaled JPEG or JPEG tiles; none if it cannot be used. */
-    List<ClaudeClient.Image> images(Capture capture, Capture.Attachment attachment, byte[] bytes) throws IOException {
+    List<Prepared> images(Capture capture, Capture.Attachment attachment, byte[] bytes) throws IOException {
         String mediaType = attachment.mediaType().toLowerCase(java.util.Locale.ROOT);
         BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
         if (image == null) {
             // ImageIO cannot decode it (e.g. WebP): send it as it is if the API takes it.
             if (IMAGE_TYPES.contains(mediaType) && bytes.length <= MAX_IMAGE_BYTES) {
-                return List.of(new ClaudeClient.Image(mediaType, bytes));
+                return List.of(new Prepared(new ClaudeClient.Image(mediaType, bytes), null));
             }
             log.info("Capture {}: image {} ({}) cannot be decoded, left out", capture.id(), attachment.name(), mediaType);
             return List.of();
@@ -156,23 +176,29 @@ public class LlmInputBuilder {
         int max = properties.maxImageEdge();
         int width = image.getWidth();
         int height = image.getHeight();
+        Region whole = new Region(0, 0, width, height);
         if (width <= max && height <= max && bytes.length <= MAX_IMAGE_BYTES && IMAGE_TYPES.contains(mediaType)) {
-            return List.of(new ClaudeClient.Image(mediaType, bytes));
+            return List.of(new Prepared(new ClaudeClient.Image(mediaType, bytes), whole));
         }
         if (height > 2L * width && height > max) {
-            BufferedImage scaled = Images.scale(image, Math.min(1.0, (double) max / width));
-            List<ClaudeClient.Image> tiles = new ArrayList<>();
+            double factor = Math.min(1.0, (double) max / width);
+            BufferedImage scaled = Images.scale(image, factor);
+            List<Prepared> tiles = new ArrayList<>();
             int tileHeight = max;
             for (int top = 0; ; top += tileHeight - TILE_OVERLAP) {
                 int bottom = Math.min(scaled.getHeight(), top + tileHeight);
-                tiles.add(new ClaudeClient.Image("image/jpeg", Images.jpeg(scaled.getSubimage(0, top, scaled.getWidth(), bottom - top))));
+                int originalTop = (int) Math.round(top / factor);
+                int originalBottom = Math.min(height, (int) Math.round(bottom / factor));
+                tiles.add(new Prepared(new ClaudeClient.Image("image/jpeg",
+                        Images.jpeg(scaled.getSubimage(0, top, scaled.getWidth(), bottom - top))),
+                        new Region(0, originalTop, width, originalBottom - originalTop)));
                 if (bottom >= scaled.getHeight()) {
                     break;
                 }
             }
             return tiles;
         }
-        return List.of(new ClaudeClient.Image("image/jpeg", Images.jpeg(Images.fit(image, max))));
+        return List.of(new Prepared(new ClaudeClient.Image("image/jpeg", Images.jpeg(Images.fit(image, max))), whole));
     }
 
     private static boolean isPdf(Capture.Attachment attachment) {

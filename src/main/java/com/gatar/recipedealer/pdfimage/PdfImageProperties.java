@@ -10,5 +10,5 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record PdfImageProperties(
         @DefaultValue("1m") Duration pollInterval,
         @DefaultValue("5") int batchSize,
-        @DefaultValue("1600") int maxEdge) {
+        @DefaultValue("" + com.gatar.recipedealer.common.Images.PHOTO_MAX_EDGE) int maxEdge) {
 }

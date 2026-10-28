@@ -16,6 +16,11 @@ import javax.imageio.stream.MemoryCacheImageOutputStream;
 /** Image re-encoding shared by the LLM input and the PDF photos. */
 public final class Images {
 
+    /** A dish photo (from a PDF or cut out of a photo) has at least this shorter edge; smaller ones are not photos. */
+    public static final int PHOTO_MIN_EDGE = 200;
+    /** Dish photos are stored as JPEG of at most this longer edge. */
+    public static final int PHOTO_MAX_EDGE = 1600;
+
     private Images() {
     }
 

@@ -64,6 +64,16 @@ public class StubClaudeClient implements ClaudeClient {
                 .formatted(title), input, cacheWrite, cacheRead, output);
     }
 
+    /** A complete recipe and what the model says about the dish photo ({@code dishPhoto} JSON object). */
+    public static Response recipeWithDishPhoto(String model, String title, String dishPhoto) {
+        return response(model, "end_turn", """
+                {"recipeFound": true, "title": "%s", "language": "pl", "servings": {"text": null, "count": null},
+                 "times": {"prepMinutes": null, "cookMinutes": 45, "totalMinutes": null},
+                 "ingredientGroups": [{"name": null, "items": ["1 kg jabłek", "300 g mąki"]}],
+                 "stepGroups": [{"name": null, "items": ["Obrać jabłka.", "Piec 45 minut."]}], "notes": [],
+                 "dishPhoto": %s}""".formatted(title, dishPhoto), 1000, 0, 0, 200);
+    }
+
     /** Title and ingredients, no steps. */
     public static Response withoutSteps(String model, String title) {
         return response(model, "end_turn", """

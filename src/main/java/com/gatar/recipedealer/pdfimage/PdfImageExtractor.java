@@ -28,7 +28,7 @@ import com.gatar.recipedealer.common.Images;
  */
 public class PdfImageExtractor {
 
-    static final int MIN_EDGE = 200;
+    static final int MIN_EDGE = Images.PHOTO_MIN_EDGE;
     /** Larger images are skipped instead of decoded (a 50 MP RGB image already takes 200 MB of heap). */
     static final long MAX_PIXELS = 50_000_000L;
 

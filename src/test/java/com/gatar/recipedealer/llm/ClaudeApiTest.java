@@ -41,8 +41,10 @@ class ClaudeApiTest {
     @Test
     void haikuExtractsAPolishRecipeFromText() throws Exception {
         var properties = properties(System.getenv("ANTHROPIC_API_KEY"));
-        var extractor = new ClaudeExtractor(HAIKU, AnthropicClaudeClient.create(properties, null),
-                new LlmInputBuilder(new FileSystemBlobStore(dir), properties));
+        var blobs = new FileSystemBlobStore(dir);
+        var inputs = new LlmInputBuilder(blobs, properties);
+        var extractor = new ClaudeExtractor(HAIKU, AnthropicClaudeClient.create(properties, null), inputs,
+                new DishPhotoCropper(blobs, inputs));
         var capture = new Capture(UUID.randomUUID(), Instant.now(), UUID.randomUUID(), UUID.randomUUID(), 1,
                 "0".repeat(64), JsonMapper.builder().build().readTree("""
                         {"source": {"type": "TEXT"}, "raw": {"text": "Racuchy babci Zosi\\n\

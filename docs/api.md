@@ -63,9 +63,12 @@ validated against it.
 
 - the photo `recipe.images[0]` (an http(s) URL), downloaded by the server in the background within about a minute
   after it becomes the head's photo; until then, or if the download fails, the next option applies;
-- else the newest photo of a capture behind the recipe: a photo or screenshot attachment, or the photo of a PDF
-  attachment (the largest image of the first page that has one, found by the server in the background within about
-  a minute; a PDF without images has none);
+- else the newest photo of a capture behind the recipe:
+  - for photos and screenshots read by the LLM extraction: the photo of the dish the model found in them, cut out of
+    the original; none when they show no dish (only the recipe text);
+  - for photos and screenshots no LLM read (the phone's result was complete): the attachment itself;
+  - for a PDF attachment: the largest image of the first page that has one, found by the server in the background
+    within about a minute; none when the PDF has no images;
 - else `null`.
 
 A recipe whose thumbnail arrives later comes again in the sync feed.
@@ -340,7 +343,7 @@ Heuristic runs are listed with zero usage. Totals are computed from the runs on 
   "models": [{"model": "claude-haiku-5-5", "runs": 1, "inputTokens": 100, "cacheCreationInputTokens": 0,
               "cacheReadInputTokens": 0, "outputTokens": 50, "costUsd": 0.000035}],
   "runs": [{"runId": "…", "captureId": "…", "startedAt": "…", "finishedAt": "…",
-            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p1",
+            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p2",
             "step": "heuristic | haiku | sonnet", "purpose": "pipeline | forced | comparison",
             "model": "claude-haiku-5-5 | null", "status": "succeeded | rejected | awaiting_extraction | failed | running",
             "applied": false, "validationErrors": ["no_steps"], "errorType": "overloaded_error | null",

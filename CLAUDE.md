@@ -60,7 +60,13 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   attachment once: the largest image (shorter edge ≥ 200 px, stencil masks ignored, images in forms included) of the
   first page that has one, pages in order; no image → no photo, pages are never rendered. Stored as JPEG ≤ 1600 px
   in `pdf_image` (one row per attachment, also for "none" / damaged) and used like a photo attachment for the
-  thumbnail. Photos / screenshots stay the thumbnail as they are (cutting the dish out with the LLM: not decided).
+  thumbnail.
+- Dish photos from photos / screenshots (2026-10-28): the LLM step also returns `dishPhoto` (image number from the
+  labels "Image N, name:", box in thousandths of that image, not pixels: the API may downscale internally);
+  `DishPhotoCropper` cuts it out of the original attachment (tiles mapped back), JPEG ≤ 1600 px, shorter edge ≥
+  200 px, into `dish_photo` (one row per LLM run that saw images; no blob = no dish). The thumbnail of a revision
+  whose run judged the images is that cut-out or nothing (a photo of only text gives no thumbnail); revisions
+  without such a run (heuristic) keep the raw attachment as the photo.
 - `DB_PASSWORD` stays as it is (Postgres is not published); never publish port 5432.
 
 ## Tags (agreed 2026-10-25)
@@ -89,9 +95,9 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - SDK `com.anthropic:anthropic-java` (3.3.0) behind `ClaudeClient` (`AnthropicClaudeClient`; tests use a stub, the
   real API only in the opt-in `ClaudeApiTest` with `CLAUDE_IT=true`). It uses Jackson 2 (Boot-managed 2.21.x) next
   to Jackson 3. SDK 3.x sends the key as `Authorization: Bearer`.
-- Request: static English system prompt (`RecipePrompt.SYSTEM_PROMPT`, version `p1` in the extractor version) with
+- Request: static English system prompt (`RecipePrompt.SYSTEM_PROMPT`, version `p2` in the extractor version) with
   `cache_control` ephemeral on it, no top-level caching; structured output schema (internal, from `$defs/recipe`,
-  no `images`, plus `recipeFound`); effort `medium` for both models, thinking left at the model default; max_tokens
+  no `images`, plus `recipeFound` and `dishPhoto`); effort `medium` for both models, thinking left at the model default; max_tokens
   16000. Input: attachments (images, PDFs base64) then the phone's text (`raw.text`, `pdfText`, `ocr.text`,
   `web.readableText`). Images > 2000 px are downscaled, tall screenshots cut into 2000 px tiles; a PDF that does not
   fit into one request (~23 MiB) is left out (no Files API).

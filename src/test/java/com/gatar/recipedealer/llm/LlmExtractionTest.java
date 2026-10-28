@@ -2,11 +2,19 @@ package com.gatar.recipedealer.llm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
+
+import javax.imageio.ImageIO;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -154,6 +162,69 @@ class LlmExtractionTest {
         assertThat(request.effort()).isEqualTo("medium");
         assertThat(request.systemPrompt()).isEqualTo(RecipePrompt.SYSTEM_PROMPT);
         assertThat(((ClaudeClient.Text) request.parts().getLast()).text()).contains("Readable text of the web page:");
+    }
+
+    /** A 1000×800 photo: the dish (red) in the top half, the recipe text (white) below. */
+    private UUID processNewWithPhoto(String slug) throws IOException {
+        BufferedImage image = new BufferedImage(1000, 800, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, 1000, 800);
+        g.setColor(Color.RED);
+        g.fillRect(0, 0, 1000, 400);
+        g.dispose();
+        var jpeg = new ByteArrayOutputStream();
+        ImageIO.write(image, "jpg", jpeg);
+        ObjectNode capture = capture(slug, c -> {
+            withoutSteps(c);
+            c.withObject("recipe").remove("images");
+            c.withArray("attachments").add(TestCaptures.attachment("photo.jpg", "image", "image/jpeg"));
+        });
+        UUID captureId = UUID.fromString(capture.get("captureId").asString());
+        assertThat(TestCaptures.put(mvc, token, captureId, TestCaptures.capturePart(TestCaptures.bytes(capture)),
+                TestCaptures.filePart("photo.jpg", "image/jpeg", jpeg.toByteArray()))).hasStatus(201);
+        assertThat(TestCaptures.resolve(mvc, token, captureId, "{\"action\":\"NEW\"}")).hasStatusOk();
+        worker.drain();
+        return captureId;
+    }
+
+    private String thumbnail(UUID captureId) {
+        return jdbc.sql("SELECT thumbnail_blob FROM recipe WHERE id = :id").param("id", recipeOf(captureId).get("id"))
+                .query(String.class).optional().orElse(null);
+    }
+
+    @Test
+    void dishPhotoIsCutOutOfThePhotoAndBecomesTheThumbnail() throws IOException {
+        claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, "Szarlotka ze zdjęciem " + suffix,
+                "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500}"));
+
+        UUID captureId = processNewWithPhoto("zdjecie");
+
+        assertThat(claude.requests.getFirst().parts().getFirst()).isEqualTo(new ClaudeClient.Text("Image 1, photo.jpg:"));
+        var photo = jdbc.sql("SELECT attachment_name, blob_sha256, x, y, width, height FROM dish_photo WHERE capture_id = :id")
+                .param("id", captureId).query().singleRow();
+        assertThat(photo).containsEntry("attachment_name", "photo.jpg").containsEntry("x", 0).containsEntry("y", 0)
+                .containsEntry("width", 1000).containsEntry("height", 400);
+        assertThat(thumbnail(captureId)).isEqualTo(photo.get("blob_sha256"));
+        var blob = mvc.get().uri("/v1/blobs/{sha256}", photo.get("blob_sha256"))
+                .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token)).exchange();
+        assertThat(blob).hasStatusOk().hasContentType("image/jpeg");
+        BufferedImage cutOut = ImageIO.read(new ByteArrayInputStream(blob.getResponse().getContentAsByteArray()));
+        assertThat(cutOut.getWidth()).isEqualTo(1000);
+        assertThat(cutOut.getHeight()).isEqualTo(400);
+        assertThat(new Color(cutOut.getRGB(500, 200)).getRed()).isGreaterThan(200);
+    }
+
+    @Test
+    void photoWithoutTheDishGivesNoThumbnail() throws IOException {
+        claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, "Szarlotka bez zdjęcia " + suffix,
+                "{\"found\": false, \"image\": 0, \"left\": 0, \"top\": 0, \"right\": 0, \"bottom\": 0}"));
+
+        UUID captureId = processNewWithPhoto("tekst");
+
+        assertThat(jdbc.sql("SELECT blob_sha256 FROM dish_photo WHERE capture_id = :id").param("id", captureId)
+                .query().singleRow()).containsEntry("blob_sha256", null);
+        assertThat(thumbnail(captureId)).isNull();
     }
 
     @Test

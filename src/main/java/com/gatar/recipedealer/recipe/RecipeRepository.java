@@ -84,14 +84,19 @@ public class RecipeRepository {
     }
 
     /**
-     * The newest capture photo of recipe {@code r}: a photo or screenshot attachment, or the photo found in a PDF
-     * attachment ({@code pdf_image}).
+     * The newest capture photo of recipe {@code r}: the dish photo an LLM run behind a revision cut out of the capture's
+     * photos or screenshots ({@code dish_photo}; none when it found no dish); for a revision whose run did not judge
+     * them, the photo or screenshot attachment itself; or the photo found in a PDF attachment ({@code pdf_image}).
      */
     private static final String CAPTURE_PHOTO = """
             (SELECT p.blob_sha256
              FROM recipe_revision v
              JOIN LATERAL (SELECT a.blob_sha256, a.name FROM capture_attachment a
                            WHERE a.capture_id = v.capture_id AND a.role IN ('image', 'screenshot')
+                             AND NOT EXISTS (SELECT 1 FROM dish_photo d WHERE d.run_id = v.run_id)
+                           UNION ALL
+                           SELECT d.blob_sha256, d.attachment_name FROM dish_photo d
+                           WHERE d.run_id = v.run_id AND d.blob_sha256 IS NOT NULL
                            UNION ALL
                            SELECT i.blob_sha256, i.attachment_name FROM pdf_image i
                            WHERE i.capture_id = v.capture_id AND i.blob_sha256 IS NOT NULL) p ON true

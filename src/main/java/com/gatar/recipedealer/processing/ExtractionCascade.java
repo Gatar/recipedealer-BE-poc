@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import com.gatar.recipedealer.llm.ClaudeClient;
 import com.gatar.recipedealer.llm.ClaudeExtractor;
+import com.gatar.recipedealer.llm.DishPhotoCropper;
 import com.gatar.recipedealer.llm.LlmInputBuilder;
 import com.gatar.recipedealer.llm.LlmProperties;
 
@@ -26,11 +27,11 @@ public class ExtractionCascade {
     private final LlmInputBuilder inputs;
 
     public ExtractionCascade(PassthroughExtractor heuristic, LlmProperties properties, ClaudeClient client,
-                             LlmInputBuilder inputs) {
+                             LlmInputBuilder inputs, DishPhotoCropper photos) {
         this.heuristic = heuristic;
         this.inputs = inputs;
         if (properties.enabled()) {
-            properties.steps().forEach(step -> llmSteps.add(new ClaudeExtractor(step, client, inputs)));
+            properties.steps().forEach(step -> llmSteps.add(new ClaudeExtractor(step, client, inputs, photos)));
         }
     }
 

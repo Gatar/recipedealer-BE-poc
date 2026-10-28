@@ -23,7 +23,8 @@ and editing.
   trigram title similarity. A decision may arrive before processing finishes and is applied later.
 - **Thumbnails** are blobs too: the server downloads a recipe's web photo (`WebImageService`) and finds the photo
   in PDF attachments (`PdfImageService`, PDFBox: the largest image of the first page that has one), both in the
-  background with the job worker; otherwise the capture's photo or screenshot is the thumbnail.
+  background with the job worker. For photos and screenshots the LLM step points at the dish photo and
+  `DishPhotoCropper` cuts it out (`dish_photo`); a photo the LLM did not read is the thumbnail as it is.
 - **Editing** is online only: 5-minute edit lease (`Lock-Id`) plus `If-Match` on the head revision.
 
 Stack: Java 25, Spring Boot 4.1, Maven, PostgreSQL 18 (`pg_trgm`, `unaccent`), `JdbcClient` with plain SQL,

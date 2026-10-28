@@ -19,7 +19,7 @@ import tools.jackson.databind.node.ObjectNode;
  */
 public final class RecipePrompt {
 
-    public static final String VERSION = "p1";
+    public static final String VERSION = "p2";
 
     /** Provenance stage of every field the model produced; a weak stage in {@code ReviewPolicy}. */
     public static final String STAGE = "llm";
@@ -62,7 +62,14 @@ public final class RecipePrompt {
             first complete one.
             13. Set recipeFound to false when the source contains no recipe (for example an unrelated photo or an \
             empty page) and leave all other fields empty. Never invent a recipe.
-            14. Return only the extracted fields. Do not repeat the source, do not add explanations.""";
+            14. Return only the extracted fields. Do not repeat the source, do not add explanations.
+            15. dishPhoto: images are numbered in their labels ("Image 1", "Image 2", ...). When an image contains a \
+            photograph of the prepared dish (the food itself; not text, not a list of ingredients, not a person, a \
+            logo, a drawing or an advertisement), set found to true, image to that image's number, and left, top, \
+            right, bottom to the edges of the photograph within that image, in thousandths of the image's width \
+            (left, right) and height (top, bottom), measured from its top-left corner. Fit the box tightly around \
+            the photograph and leave out the text around it. When several images show the dish, choose the largest \
+            photograph. Otherwise, and when there are no images, set found to false and all numbers to 0.""";
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -88,6 +95,15 @@ public final class RecipePrompt {
         properties.put("ingredientGroups", groups);
         properties.put("stepGroups", groups);
         properties.put("notes", Map.of("type", "array", "items", Map.of("type", "string")));
+        Map<String, Object> integer = Map.of("type", "integer");
+        Map<String, Object> dishPhoto = new LinkedHashMap<>();
+        dishPhoto.put("found", Map.of("type", "boolean"));
+        dishPhoto.put("image", integer);
+        dishPhoto.put("left", integer);
+        dishPhoto.put("top", integer);
+        dishPhoto.put("right", integer);
+        dishPhoto.put("bottom", integer);
+        properties.put("dishPhoto", object(dishPhoto));
 
         Map<String, Object> schema = new LinkedHashMap<>(object(properties));
         schema.put("$defs", Map.of("group", group));
@@ -106,8 +122,13 @@ public final class RecipePrompt {
     /**
      * @param recipe     the recipe DTO (only fields the model filled)
      * @param provenance {@link #STAGE} for every filled field
+     * @param dishPhoto  where the dish photo is, null when the model found none (or gave an impossible box)
      */
-    public record Parsed(boolean recipeFound, ObjectNode recipe, Map<String, String> provenance) {
+    public record Parsed(boolean recipeFound, ObjectNode recipe, Map<String, String> provenance, DishPhoto dishPhoto) {
+    }
+
+    /** Box of the dish photo in image {@code image}, edges in thousandths of the image's width and height. */
+    public record DishPhoto(int image, int left, int top, int right, int bottom) {
     }
 
     /** @throws IllegalArgumentException if the text is not a JSON object */
@@ -168,7 +189,22 @@ public final class RecipePrompt {
             notes.forEach(notesNode::add);
             provenance.put("notes", STAGE);
         }
-        return new Parsed(found, recipe, provenance);
+        return new Parsed(found, recipe, provenance, dishPhoto(root.path("dishPhoto")));
+    }
+
+    private static DishPhoto dishPhoto(JsonNode node) {
+        if (!node.path("found").asBoolean(false)) {
+            return null;
+        }
+        Integer image = bounded(node.get("image"), 1, Integer.MAX_VALUE);
+        Integer left = bounded(node.get("left"), 0, 1000);
+        Integer top = bounded(node.get("top"), 0, 1000);
+        Integer right = bounded(node.get("right"), 0, 1000);
+        Integer bottom = bounded(node.get("bottom"), 0, 1000);
+        if (image == null || left == null || top == null || right == null || bottom == null || left >= right || top >= bottom) {
+            return null;
+        }
+        return new DishPhoto(image, left, top, right, bottom);
     }
 
     /** Copies non-empty groups (blank items dropped); returns whether any item was copied. */

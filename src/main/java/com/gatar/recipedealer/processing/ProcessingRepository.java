@@ -110,6 +110,29 @@ public class ProcessingRepository {
                 .update();
     }
 
+    /** Records what an LLM run found about the dish photo (the cut-out blob is already in the blob store). */
+    public void insertDishPhoto(UUID runId, UUID captureId, DishPhotoFinding finding) {
+        DishPhotoFinding.Photo photo = finding.photo();
+        if (photo != null) {
+            jdbc.sql("INSERT INTO blob (sha256, size_bytes) VALUES (:sha256, :size) ON CONFLICT (sha256) DO NOTHING")
+                    .param("sha256", photo.blobSha256())
+                    .param("size", photo.sizeBytes())
+                    .update();
+        }
+        jdbc.sql("""
+                        INSERT INTO dish_photo (run_id, capture_id, attachment_name, blob_sha256, x, y, width, height)
+                        VALUES (:runId, :captureId, :name, :sha256, :x, :y, :width, :height)""")
+                .param("runId", runId)
+                .param("captureId", captureId)
+                .param("name", photo == null ? null : photo.attachmentName())
+                .param("sha256", photo == null ? null : photo.blobSha256())
+                .param("x", photo == null ? null : photo.x())
+                .param("y", photo == null ? null : photo.y())
+                .param("width", photo == null ? null : photo.width())
+                .param("height", photo == null ? null : photo.height())
+                .update();
+    }
+
     /** The fallback chose a rejected run as the cascade's result. */
     public void promote(UUID runId) {
         jdbc.sql("UPDATE processing_run SET status = 'succeeded' WHERE id = :id AND status = 'rejected'")

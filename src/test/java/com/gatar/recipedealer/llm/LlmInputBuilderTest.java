@@ -75,10 +75,16 @@ class LlmInputBuilderTest {
     @Test
     void imageWithinTheLimitsIsSentAsItIs() throws IOException {
         byte[] jpeg = image(1600, 1200, "jpg");
-        var parts = inputs.build(capture(IMAGE_BODY, attachment("photo.jpg", "image", "image/jpeg", jpeg)));
+        var input = inputs.build(capture(IMAGE_BODY, attachment("photo.jpg", "image", "image/jpeg", jpeg)));
+        var parts = input.parts();
 
         assertThat(parts).hasSize(3);
-        assertThat(parts.get(0)).isEqualTo(new ClaudeClient.Text("Image photo.jpg:"));
+        assertThat(parts.get(0)).isEqualTo(new ClaudeClient.Text("Image 1, photo.jpg:"));
+        assertThat(input.images()).singleElement().satisfies(image -> {
+            assertThat(image.number()).isEqualTo(1);
+            assertThat(image.attachment().name()).isEqualTo("photo.jpg");
+            assertThat(image.region()).isEqualTo(new LlmInputBuilder.Region(0, 0, 1600, 1200));
+        });
         assertThat(((ClaudeClient.Image) parts.get(1)).data()).isEqualTo(jpeg);
         String text = ((ClaudeClient.Text) parts.get(2)).text();
         assertThat(text).startsWith("Source type: IMAGE\n")
@@ -88,8 +94,11 @@ class LlmInputBuilderTest {
 
     @Test
     void largeImageIsDownscaledToTheMaximumEdge() throws IOException {
-        var parts = inputs.build(capture(IMAGE_BODY, attachment("big.png", "image", "image/png", image(4000, 3000, "png"))));
+        var input = inputs.build(capture(IMAGE_BODY, attachment("big.png", "image", "image/png", image(4000, 3000, "png"))));
+        var parts = input.parts();
 
+        assertThat(input.images()).singleElement()
+                .satisfies(image -> assertThat(image.region()).isEqualTo(new LlmInputBuilder.Region(0, 0, 4000, 3000)));
         assertThat(decoded(parts)).singleElement().satisfies(image -> {
             assertThat(image.getWidth()).isEqualTo(2000);
             assertThat(image.getHeight()).isEqualTo(1500);
@@ -100,13 +109,20 @@ class LlmInputBuilderTest {
 
     @Test
     void tallScreenshotIsCutIntoOverlappingTiles() throws IOException {
-        var parts = inputs.build(capture(IMAGE_BODY,
+        var input = inputs.build(capture(IMAGE_BODY,
                 attachment("page.jpg", "screenshot", "image/jpeg", image(1000, 5000, "jpg"))));
+        var parts = input.parts();
 
         assertThat(decoded(parts)).extracting(BufferedImage::getHeight).containsExactly(2000, 2000, 1200);
         assertThat(decoded(parts)).allSatisfy(tile -> assertThat(tile.getWidth()).isEqualTo(1000));
         assertThat(parts.get(0)).isEqualTo(
-                new ClaudeClient.Text("Image page.jpg, part 1 of 3 (top to bottom, parts overlap slightly):"));
+                new ClaudeClient.Text("Image 1, page.jpg, part 1 of 3 (top to bottom, parts overlap slightly):"));
+        assertThat(parts.get(2)).isEqualTo(
+                new ClaudeClient.Text("Image 2, page.jpg, part 2 of 3 (top to bottom, parts overlap slightly):"));
+        assertThat(input.images()).extracting(LlmInputBuilder.SentImage::region).containsExactly(
+                new LlmInputBuilder.Region(0, 0, 1000, 2000),
+                new LlmInputBuilder.Region(0, 1900, 1000, 2000),
+                new LlmInputBuilder.Region(0, 3800, 1000, 1200));
     }
 
     @Test
@@ -116,7 +132,9 @@ class LlmInputBuilderTest {
 
         assertThat(builder(2000).hasInput(capture)).isFalse();
         assertThat(inputs.hasInput(capture)).isTrue();
-        assertThat(inputs.build(capture)).hasSize(3).element(1).isInstanceOf(ClaudeClient.Pdf.class);
+        var input = inputs.build(capture);
+        assertThat(input.parts()).hasSize(3).element(1).isInstanceOf(ClaudeClient.Pdf.class);
+        assertThat(input.images()).isEmpty();
     }
 
     @Test

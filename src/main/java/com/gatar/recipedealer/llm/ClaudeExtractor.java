@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.gatar.recipedealer.processing.Capture;
+import com.gatar.recipedealer.processing.DishPhotoFinding;
 import com.gatar.recipedealer.processing.ExtractionResult;
 import com.gatar.recipedealer.processing.RecipeCandidate;
 import com.gatar.recipedealer.processing.RecipeExtractor;
@@ -19,11 +20,13 @@ public class ClaudeExtractor implements RecipeExtractor {
     private final LlmProperties.Step step;
     private final ClaudeClient client;
     private final LlmInputBuilder inputs;
+    private final DishPhotoCropper photos;
 
-    public ClaudeExtractor(LlmProperties.Step step, ClaudeClient client, LlmInputBuilder inputs) {
+    public ClaudeExtractor(LlmProperties.Step step, ClaudeClient client, LlmInputBuilder inputs, DishPhotoCropper photos) {
         this.step = step;
         this.client = client;
         this.inputs = inputs;
+        this.photos = photos;
     }
 
     public LlmProperties.Step step() {
@@ -43,8 +46,9 @@ public class ClaudeExtractor implements RecipeExtractor {
     /** @throws LlmException when the API call fails (see {@link LlmException.Kind}) */
     @Override
     public ExtractionResult extract(Capture capture) throws Exception {
+        LlmInputBuilder.Input input = inputs.build(capture);
         var request = new ClaudeClient.Request(step.model(), step.effort(), RecipePrompt.SYSTEM_PROMPT,
-                RecipePrompt.schema(), inputs.build(capture));
+                RecipePrompt.schema(), input.parts());
         ClaudeClient.Response response = client.extract(request);
 
         List<String> problems = new ArrayList<>();
@@ -57,17 +61,22 @@ public class ClaudeExtractor implements RecipeExtractor {
             problems.add("context_window_exceeded");
         }
         RecipeCandidate candidate = new RecipeCandidate(JsonNodeFactory.instance.objectNode(), Map.of());
+        DishPhotoFinding dishPhoto = null;
         if (problems.isEmpty()) {
+            RecipePrompt.Parsed parsed = null;
             try {
-                RecipePrompt.Parsed parsed = RecipePrompt.parse(response.text());
+                parsed = RecipePrompt.parse(response.text());
+            } catch (IllegalArgumentException e) {
+                problems.add("invalid_output");
+            }
+            if (parsed != null) {
                 candidate = new RecipeCandidate(parsed.recipe(), parsed.provenance());
                 if (!parsed.recipeFound()) {
                     problems.add("no_recipe_found");
                 }
-            } catch (IllegalArgumentException e) {
-                problems.add("invalid_output");
+                dishPhoto = photos.crop(capture, input.images(), parsed.dishPhoto());
             }
         }
-        return new ExtractionResult(List.of(candidate), response.usage(), problems);
+        return new ExtractionResult(List.of(candidate), response.usage(), problems, dishPhoto);
     }
 }

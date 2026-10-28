@@ -107,7 +107,8 @@ public class ProcessingService {
         List<String> errors = ExtractionValidator.validate(result, candidates);
         boolean valid = errors.isEmpty();
         List<StoredCandidate> stored = valid ? candidates : candidates.stream().map(StoredCandidate::needingReview).toList();
-        var finished = new FinishedRun(runId, stored, errors, result.usage(), pricing.cost(result.usage()));
+        var finished = new FinishedRun(runId, captureId, stored, errors, result.usage(), pricing.cost(result.usage()),
+                result.dishPhoto());
 
         tx.executeWithoutResult(status -> {
             processing.lockState(captureId);
@@ -131,12 +132,15 @@ public class ProcessingService {
                 valid ? "" : ", validation failed: " + String.join(", ", errors));
     }
 
-    private record FinishedRun(UUID id, List<StoredCandidate> candidates, List<String> errors, LlmUsage usage,
-                               BigDecimal cost) {
+    private record FinishedRun(UUID id, UUID captureId, List<StoredCandidate> candidates, List<String> errors,
+                               LlmUsage usage, BigDecimal cost, DishPhotoFinding dishPhoto) {
 
         void store(ProcessingRepository processing, RunStatus status) {
             processing.finishRun(id, status, errors, usage, cost);
             candidates.forEach(candidate -> processing.insertCandidate(id, candidate));
+            if (dishPhoto != null) {
+                processing.insertDishPhoto(id, captureId, dishPhoto);
+            }
         }
     }
 

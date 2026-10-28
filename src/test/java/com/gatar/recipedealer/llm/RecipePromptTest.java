@@ -53,6 +53,20 @@ class RecipePromptTest {
     }
 
     @Test
+    void dishPhotoBoxIsReadWhenFoundAndPlausible() {
+        assertThat(RecipePrompt.parse("""
+                {"recipeFound": true, "dishPhoto": {"found": true, "image": 2, "left": 0, "top": 120, "right": 1000, "bottom": 480}}""")
+                .dishPhoto()).isEqualTo(new RecipePrompt.DishPhoto(2, 0, 120, 1000, 480));
+        assertThat(RecipePrompt.parse("""
+                {"recipeFound": true, "dishPhoto": {"found": false, "image": 0, "left": 0, "top": 0, "right": 0, "bottom": 0}}""")
+                .dishPhoto()).isNull();
+        assertThat(RecipePrompt.parse("""
+                {"recipeFound": true, "dishPhoto": {"found": true, "image": 1, "left": 500, "top": 0, "right": 400, "bottom": 300}}""")
+                .dishPhoto()).isNull();
+        assertThat(RecipePrompt.parse("{\"recipeFound\": true}").dishPhoto()).isNull();
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void schemaFollowsTheStructuredOutputRules() {
         Map<String, Object> schema = RecipePrompt.schema();
@@ -62,6 +76,10 @@ class RecipePromptTest {
         assertThat(properties).doesNotContainKey("images");
         Map<String, Object> group = (Map<String, Object>) ((Map<String, Object>) schema.get("$defs")).get("group");
         assertThat(group).containsEntry("additionalProperties", false);
+        Map<String, Object> dishPhoto = (Map<String, Object>) properties.get("dishPhoto");
+        assertThat(dishPhoto).containsEntry("additionalProperties", false);
+        assertThat((List<String>) dishPhoto.get("required"))
+                .containsExactly("found", "image", "left", "top", "right", "bottom");
     }
 
     @Test

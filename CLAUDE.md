@@ -96,6 +96,9 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Transient API errors (5xx, 529, 429, timeouts) retry the same step (SDK `max-retries` 2, then job backoff); auth /
   permission / credit (401/402/403) end the job at once (`NonRetryableProcessingException`, capture
   `needs_attention` / `LLM_UNAVAILABLE`); other 4xx → `LLM_REQUEST_REJECTED`. SDK timeout 150 s × 3 < lease 10 min.
+- Recipes without an ingredient list (ingredients only named in the steps): Haiku returns no ingredients and the
+  cascade escalates to Sonnet, which lists them. Do not add a prompt rule to derive ingredients from the steps
+  (user, 2026-10-28: it would push the model to make ingredients up); Sonnet handles these.
 - Refusals: no server-side refusal fallback (`fallbacks` param); a refusal is a validation failure
   (`refusal:<category>`) and escalates.
 - SDK `com.anthropic:anthropic-java` (3.3.0) behind `ClaudeClient` (`AnthropicClaudeClient`; tests use a stub, the

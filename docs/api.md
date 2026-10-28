@@ -90,7 +90,8 @@ A recipe whose thumbnail arrives later comes again in the sync feed.
 - `recipes`: the recipes this capture created or updated.
 - `candidates`: the extracted recipes. `resolution` and `targetRecipeId` are *omitted when empty* (no decision yet).
 - `reason`:
-  - `AWAITING_EXTRACTION`: nothing could be extracted yet.
+  - `AWAITING_EXTRACTION`: no step could read a recipe (no ingredients or steps). The server does not try again by
+    itself: force extraction again, or delete the capture if it is not a recipe.
   - `PROCESSING_FAILED`: processing failed after its retries.
   - `LLM_UNAVAILABLE`: automatic extraction could not run (the server's Claude API key is missing or invalid, or the
     account has no credit). Not retried; force extraction again once it is fixed.

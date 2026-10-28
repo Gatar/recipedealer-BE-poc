@@ -190,7 +190,7 @@ public class ProcessingService {
             current.store(processing, RunStatus.AWAITING_EXTRACTION);
             boolean decided = !resolutionRepository.forCapture(captureId).isEmpty();
             processing.setState(captureId, CaptureStatus.NEEDS_ATTENTION, AWAITING_EXTRACTION,
-                    "No ingredients or steps could be read; waiting for automatic extraction."
+                    "No recipe could be read from this capture."
                             + (decided ? " Your decision is saved." : ""));
         }
     }

@@ -10,11 +10,12 @@ and editing.
 - **Captures** are immutable raw input: the original JSON bytes and every attachment are content-addressed blobs
   (`BlobStore`, SHA-256), validated against the capture JSON Schema (`schemaVersion: 1`) shared with the Android
   app (`src/main/resources/schema/capture-v1.json`).
-- **Processing runs** turn a capture into recipe candidates through a pluggable `RecipeExtractor`
-  (v1: `PassthroughExtractor`; phase 2: an LLM/vision extractor behind the same interface). Jobs live in a
-  PostgreSQL table (`FOR UPDATE SKIP LOCKED`, lease, exponential backoff, `needs_attention`).
+- **Processing runs** turn a capture into recipe candidates through an extraction cascade (`ExtractionCascade`):
+  the phone's result (`PassthroughExtractor`), then Claude Haiku, then Claude Sonnet (`ClaudeExtractor`); a step
+  runs only when the previous one fails validation (title, ingredients, steps). One job and one run per step. Jobs
+  live in a PostgreSQL table (`FOR UPDATE SKIP LOCKED`, lease, exponential backoff, `needs_attention`).
   `ProvenanceGuard` keeps fields the user edited on the phone; candidates whose ingredients or steps come from
-  `heuristic` / `ocr` / `page` are marked `needsReview`.
+  `heuristic` / `ocr` / `page` / `llm` are marked `needsReview`.
 - **Recipes** have identity keys (normalized canonical URL, JSON-LD `@id`) and immutable **revisions**
   (`MACHINE` or `USER`). Automatic changes never move a head the user wrote; equal content creates no revision
   (except a user save of an unchanged head that `needsReview`: it becomes a USER revision and clears the flag).
@@ -33,7 +34,7 @@ The full reference is [`docs/api.md`](docs/api.md): every endpoint with its requ
 In short: a user registers (`POST /v1/auth/register`, with the household registration code) or logs in
 (`POST /v1/auth/login`) and gets a device token. Devices authenticate with `Authorization: Bearer <device token>`
 and use `/v1/captures`, `/v1/recipes`, `/v1/tags`, `/v1/blobs`, `/v1/me` and `/v1/health`. The admin uses HTTP Basic on `/v1/admin/**` (enrollments, devices,
-backups). Errors are `{"error": "...", "details": ["..."]}`.
+backups, LLM comparisons and reprocessing, API key check). Errors are `{"error": "...", "details": ["..."]}`.
 
 ## Local development
 
@@ -58,8 +59,15 @@ export RECIPEDEALER_ADMIN_PASSWORD_HASH="$(docker run --rm caddy:2.11.7 caddy ha
 
 Configuration (environment variables): `DB_URL`, `DB_USER`, `DB_PASSWORD`, `BLOB_DIR`, `BACKUP_DIR`,
 `RECIPEDEALER_ADMIN_USERNAME`, `RECIPEDEALER_ADMIN_PASSWORD_HASH` (bcrypt), `REGISTRATION_CODE`, `MAX_USERS`
-(default 10). The admin credentials never live in the database; without them the admin endpoints answer 401.
-Without `REGISTRATION_CODE` self-service registration is disabled.
+(default 10), `ANTHROPIC_API_KEY`, `DEADMAN_API_KEY_URL`. The admin credentials never live in the database; without
+them the admin endpoints answer 401. Without `REGISTRATION_CODE` self-service registration is disabled. Without
+`ANTHROPIC_API_KEY` the LLM extraction steps are disabled (one WARN at startup).
+
+Tests never call the Claude API (a stubbed client). The opt-in test against the real API costs a fraction of a cent:
+
+```bash
+CLAUDE_IT=true ANTHROPIC_API_KEY=sk-ant-... ./mvnw test -Dtest=ClaudeApiTest
+```
 
 ## Deployment
 
@@ -174,9 +182,42 @@ It asks for confirmation (`--yes` skips it) and first saves the current database
 A nightly dump has no blobs: restore `/srv/recipedealer/blobs` from the Hetzner backup of the same night if blobs
 were lost too (blobs newer than the dump are harmless: they are just unreferenced).
 
+### LLM extraction (Claude)
+
+1. Create an API key in the Claude Console (console.anthropic.com → API keys), ideally in its own workspace with a
+   spend limit, and put it into `.env` as `ANTHROPIC_API_KEY=sk-ant-...`. Never commit or print it.
+2. Optional dead man's switch for the key: create a second healthchecks.io check (period 1 day, grace a few hours),
+   put its URL into `.env` as `DEADMAN_API_KEY_URL`. Every day at 06:00 server time the app sends a minimal request
+   (`max_tokens: 0` to Claude Haiku) and pings the URL only if it succeeds, so an invalid key or an empty account
+   shows up as a missing ping. The app logs an ERROR with the error type and HTTP status, never the key.
+3. `docker compose up -d` (the deploy job does it), then check the key at once:
+
+   ```bash
+   curl -u admin:'your-admin-password' -X POST https://<server>/v1/admin/api-key-check
+   ```
+
+Models, effort, timeouts and prices (USD per million tokens, taken from the pricing page; the cost of a run is stored
+when it finishes) are in `application.yaml` under `recipedealer.llm`. Every capture whose phone result is incomplete
+goes to Claude Haiku, and to Claude Sonnet if Haiku's result is incomplete too. Usage per run is stored on
+`processing_run` and shown per recipe by `GET /v1/recipes/{recipeId}/extraction-stats`.
+
+Admin tools (see `docs/api.md`):
+
+```bash
+# Compare models on some captures (never applied), then read the report side by side.
+curl -u admin:'…' -H 'Content-Type: application/json' -X POST https://<server>/v1/admin/llm-comparisons \
+  -d '{"captureIds": ["…"], "steps": ["haiku", "sonnet"]}'
+curl -u admin:'…' "https://<server>/v1/admin/llm-comparisons?captureIds=…,…"
+# Process captures again through the cascade (from Haiku), e.g. all that wait for extraction.
+curl -u admin:'…' -H 'Content-Type: application/json' -X POST https://<server>/v1/admin/llm-extractions \
+  -d '{"reason": "AWAITING_EXTRACTION"}'
+```
+
 ### Operations
 
 - Logs: `docker compose logs -f app` (in `/srv/recipedealer/app`).
 - Diagnostics: the image is a full JDK, e.g. `docker compose exec app jcmd 1 Thread.print`.
 - The app runs with `-Xmx1g` and the default GC.
-- Failed processing jobs end in capture status `needs_attention` with reason `PROCESSING_FAILED`.
+- Failed processing jobs end in capture status `needs_attention` with reason `PROCESSING_FAILED`; a Claude key or
+  credit problem with `LLM_UNAVAILABLE` (not retried: fix the key, then reprocess with
+  `{"reason": "LLM_UNAVAILABLE"}`).

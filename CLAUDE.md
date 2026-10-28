@@ -66,20 +66,42 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Tags are assigned manually only (also with a NEW decision); no ingredient tags (ingredient search covers that).
 - Recipe merge does not exist yet; when it comes, the target gets the union of both recipes' tags.
 
-## LLM extraction (agreed 2026-10-28, not implemented yet; task prompt `docs/add-llm-prompt.txt`)
-- Cascade heuristic (`PassthroughExtractor`) → Claude Haiku → Claude Sonnet; the next step runs only when the
-  previous one fails validation (title, ≥1 ingredient, ≥1 step, schema, `stop_reason` ≠ `max_tokens`). The same
-  validation applies to the heuristic: a partial result (e.g. no steps) goes to Haiku.
-- Transient API errors retry the same step, they do not escalate; auth / credit errors fail without retry.
-- Every step is its own `processing_run`; only the first valid run is applied. All steps fail → the best non-empty
-  result goes on with `needsReview`; all empty → `AWAITING_EXTRACTION` as before.
-- Handwriting gets no contract marker: it goes through the same cascade.
+## LLM extraction (agreed 2026-10-28; task prompt `docs/add-llm-prompt.txt`)
+- Cascade heuristic (`PassthroughExtractor`) → Claude Haiku → Claude Sonnet (`ExtractionCascade`, steps
+  `heuristic | haiku | sonnet`); the next step runs only when the previous one fails validation
+  (`ExtractionValidator`: title, ≥1 ingredient, ≥1 step, schema-conforming output, `stop_reason` not `max_tokens` /
+  `refusal`, `recipeFound` not false). The same validation applies to the heuristic: a partial result goes to Haiku.
+- One job = one step = one `processing_run` (purpose `pipeline | forced | comparison`, `cascade_id` groups a pass);
+  the next step is enqueued in the transaction that finishes the previous one. A run failing validation is
+  `rejected` (candidates kept, `needs_review` true). All steps fail → the best non-empty run of the cascade is
+  applied (promoted to `succeeded`, later steps win ties); all empty → `AWAITING_EXTRACTION`. A forced cascade
+  without a valid result never replaces what a capture already applied.
+- Transient API errors (5xx, 529, 429, timeouts) retry the same step (SDK `max-retries` 2, then job backoff); auth /
+  permission / credit (401/402/403) end the job at once (`NonRetryableProcessingException`, capture
+  `needs_attention` / `LLM_UNAVAILABLE`); other 4xx → `LLM_REQUEST_REJECTED`. SDK timeout 150 s × 3 < lease 10 min.
+- Refusals: no server-side refusal fallback (`fallbacks` param); a refusal is a validation failure
+  (`refusal:<category>`) and escalates.
+- SDK `com.anthropic:anthropic-java` (3.3.0) behind `ClaudeClient` (`AnthropicClaudeClient`; tests use a stub, the
+  real API only in the opt-in `ClaudeApiTest` with `CLAUDE_IT=true`). It uses Jackson 2 (Boot-managed 2.21.x) next
+  to Jackson 3. SDK 3.x sends the key as `Authorization: Bearer`.
+- Request: static English system prompt (`RecipePrompt.SYSTEM_PROMPT`, version `p1` in the extractor version) with
+  `cache_control` ephemeral on it, no top-level caching; structured output schema (internal, from `$defs/recipe`,
+  no `images`, plus `recipeFound`); effort `medium` for both models, thinking left at the model default; max_tokens
+  16000. Input: attachments (images, PDFs base64) then the phone's text (`raw.text`, `pdfText`, `ocr.text`,
+  `web.readableText`). Images > 2000 px are downscaled, tall screenshots cut into 2000 px tiles; a PDF that does not
+  fit into one request (~23 MiB) is left out (no Files API).
 - LLM output has provenance stage `llm`, a weak stage in `ReviewPolicy`: every LLM result `needsReview`.
-- `POST /v1/captures/{captureId}/llm-extraction`: any device that sees the capture forces the cascade from Haiku
-  (no limits for now); the result takes the normal path (never moves a USER head).
-- Usage per run (model, tokens incl. cache, latency, cost) is stored and exposed per recipe for the app's
-  "Statystyki dla nerdów" (which models, how many runs, tokens, cost).
-- Admin comparison runs (Haiku vs. Sonnet, e.g. on the 9 stuck household captures) are never applied.
+- `POST /v1/captures/{captureId}/llm-extraction`: any device forces the cascade from Haiku (no limits for now).
+- Usage per run on `processing_run` (model, stop_reason, tokens incl. cache, latency, `cost_usd` with the configured
+  prices at finish time; Haiku 5.5 has long-context prices above 100k prompt tokens). Per recipe:
+  `GET /v1/recipes/{recipeId}/extraction-stats`, aggregated from the run rows on every request.
+- Admin: comparison runs (`/v1/admin/llm-comparisons`) are never applied and never change `capture_state`;
+  `latestCompletedRun` ignores them. Reprocessing: `/v1/admin/llm-extractions` (capture ids or a state reason).
+- API key dead man's switch: daily `max_tokens: 0` request to Haiku (`ApiKeyCheck`, own schedule, not the job
+  queue), recorded in `api_key_check`, pings `DEADMAN_API_KEY_URL` only on success; `POST /v1/admin/api-key-check`
+  runs it now. The provider's `/fail` endpoint is not used.
+- Unit tests that scale images need `java.awt.headless=true` (set in the surefire configuration); without it they
+  hang on macOS.
 
 ## Gotchas
 - `@ConditionalOnProperty` is evaluated before `DynamicPropertyRegistrar` runs: test properties that switch beans

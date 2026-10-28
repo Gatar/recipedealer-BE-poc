@@ -66,6 +66,21 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Tags are assigned manually only (also with a NEW decision); no ingredient tags (ingredient search covers that).
 - Recipe merge does not exist yet; when it comes, the target gets the union of both recipes' tags.
 
+## LLM extraction (agreed 2026-10-28, not implemented yet; task prompt `docs/add-llm-prompt.txt`)
+- Cascade heuristic (`PassthroughExtractor`) → Claude Haiku → Claude Sonnet; the next step runs only when the
+  previous one fails validation (title, ≥1 ingredient, ≥1 step, schema, `stop_reason` ≠ `max_tokens`). The same
+  validation applies to the heuristic: a partial result (e.g. no steps) goes to Haiku.
+- Transient API errors retry the same step, they do not escalate; auth / credit errors fail without retry.
+- Every step is its own `processing_run`; only the first valid run is applied. All steps fail → the best non-empty
+  result goes on with `needsReview`; all empty → `AWAITING_EXTRACTION` as before.
+- Handwriting gets no contract marker: it goes through the same cascade.
+- LLM output has provenance stage `llm`, a weak stage in `ReviewPolicy`: every LLM result `needsReview`.
+- `POST /v1/captures/{captureId}/llm-extraction`: any device that sees the capture forces the cascade from Haiku
+  (no limits for now); the result takes the normal path (never moves a USER head).
+- Usage per run (model, tokens incl. cache, latency, cost) is stored and exposed per recipe for the app's
+  "Statystyki dla nerdów" (which models, how many runs, tokens, cost).
+- Admin comparison runs (Haiku vs. Sonnet, e.g. on the 9 stuck household captures) are never applied.
+
 ## Gotchas
 - `@ConditionalOnProperty` is evaluated before `DynamicPropertyRegistrar` runs: test properties that switch beans
   (e.g. `recipedealer.worker.enabled=false`) go into `@SpringBootTest(properties = ...)` (see `IntegrationTest`).

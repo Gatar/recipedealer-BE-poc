@@ -1,0 +1,118 @@
+# Task: LLM recipe extraction (Claude Haiku → Sonnet cascade)
+
+Project rules, contract and existing design are in `../CLAUDE.md`, `CLAUDE.md` and `README.md`; follow them.
+This prompt only adds what is new.
+
+## Extraction cascade
+Every capture goes through the steps in order; the next step runs ONLY if the previous one fails validation:
+
+    heuristic (PassthroughExtractor, the phone's result) → Claude Haiku → Claude Sonnet
+
+- Each step is its own `processing_run` (extractor name + version; for LLM steps the version includes the model ID).
+  A failed step is never overwritten; its candidates are kept for inspection but not applied.
+- Only the first run that passes validation goes into the normal flow (`ProvenanceGuard`, auto-NEW, stored
+  decisions, `ResolutionService.apply`).
+- If all steps fail: the best non-empty result (most of title / ingredients / steps) goes into the normal flow with
+  `needsReview`; if all are empty, the capture stays `needs_attention` / `AWAITING_EXTRACTION` as today.
+- Handwriting has no marker in the contract and gets none: it goes through the same cascade (typically the heuristic
+  is empty, Haiku partial, Sonnet complete).
+- LLM input: attachments (images / PDFs as native content blocks) and text the capture already carries (inspect
+  `raw`, e.g. `raw.ocr.text`). A capture with neither skips the LLM steps.
+- Provenance stage of LLM output: `llm`, treated as a weak stage in `ReviewPolicy` (LLM results need review).
+- The single `RecipeExtractor` bean, `ExtractionResult` (needs usage data) and `ProcessingService.process` (one
+  extractor per run) must change to support this; propose how in the plan.
+
+### Validation (defines "fails")
+Title present, at least one ingredient, at least one step, response conforms to the structured-output schema,
+`stop_reason` is not `max_tokens`. Ingredients are plain strings (no quantity / unit model). Propose further rules
+in the plan if useful.
+
+### Errors
+- Transient errors (5xx, overload, rate limit, timeout): retry the same step (SDK retry, then the job's backoff);
+  they do not escalate to the next step.
+- Auth / insufficient credit: mark the run failed with a clear reason, no retry (today `JobWorker` retries every
+  exception: add a non-retryable failure), capture stays in the inbox.
+- SDK timeouts × retries must fit within the job lease (`recipedealer.worker.lease`, 10 min).
+
+## Claude API
+- Official Java SDK `com.anthropic:anthropic-java`, pinned to the current version from Maven Central. Check that it
+  coexists with Boot 4's Jackson 3 (the SDK uses Jackson 2).
+- Model IDs `claude-haiku-5-5` / `claude-sonnet-5-5`, configurable. Verify against https://platform.claude.com/docs.
+- Structured outputs (JSON schema) mapping to the recipe DTO (`$defs/recipe` in `capture-v1.json`).
+- Size limits: our uploads allow 25 MiB per file; base64 adds ~33%. Check the documented request / PDF / image limits
+  and downscale images server-side if needed.
+- Return only extracted fields, never echo the source; sensible `max_tokens`. Prompt in English; keep the source
+  language (mostly Polish), do not translate.
+- Prompt caching: all static content in the system prompt, byte-identical across requests; explicit `cache_control`
+  (ephemeral, 5 min) on the last system block, no top-level automatic caching; images / PDFs in the messages.
+  Below the model's minimum cacheable prefix caching does nothing; do not pad.
+- API key only from `ANTHROPIC_API_KEY`: add it to the app's `environment:` in `compose.yaml` and to
+  `deploy/env.example`; document the setup in the README. Without a key the LLM steps are disabled (WARN at startup)
+  and the cascade stops after the heuristic. No key in CI.
+- Never log the key or request payloads with images.
+
+## Usage and cost
+- One migration: per run the model ID, `stop_reason`, input / cache-creation / cache-read / output tokens, latency
+  and cost in USD.
+- Prices in configuration (USD per million tokens), values taken from the current pricing docs, not from memory.
+- Cost is computed and stored when the run finishes (later price changes do not rewrite history).
+
+### Per-recipe usage stats (for the app's "Statystyki dla nerdów")
+Every recipe processed by the LLM must expose how many tokens it used, which models processed it and how many times.
+- Source of truth = the per-run usage rows; aggregate by query, no counters that could drift. A recipe's runs are
+  all runs of the captures linked to it (revisions' `capture_id`, applied resolutions), including failed cascade
+  steps, forced runs and admin comparison runs (each marked with its purpose).
+- `GET /v1/recipes/{recipeId}/extraction-stats` (device token): totals (runs, input / cache-write / cache-read /
+  output tokens, cost USD) and per model (runs, tokens, cost), plus the list of runs (time, extractor / model,
+  purpose, status / validation result, tokens, latency, cost). Heuristic runs are listed with zero usage.
+  Propose the exact shape in the plan; additive endpoint, the Android view is a separate task.
+
+## Force LLM extraction (app API)
+`POST /v1/captures/{captureId}/llm-extraction` (device token, same visibility as `GET /v1/captures/{captureId}`):
+enqueues the cascade for that capture starting at Haiku (skipping the heuristic). The app reaches it from a recipe
+through `captureId` of its revisions, and from a stuck capture in the inbox directly.
+- The result goes through the normal flow: an applied capture updates its recipe automatically (never moving a USER
+  head), a stuck capture with a stored decision applies it.
+- 202 with the capture status; 404 `not_found`; 409 if a job for the capture is queued or running; 503 if no API key
+  is configured. Propose exact error codes in the plan.
+- Additive endpoint; the Android client change is a separate task.
+
+## Admin: model comparison on the 9 stuck captures
+The household's 9 IMAGE / PDF captures (sent 2026-10-27 with a NEW decision) sit in `AWAITING_EXTRACTION`.
+- Admin endpoint (existing admin auth): run selected capture IDs with Haiku, Sonnet or both. These comparison runs
+  are marked (e.g. a `purpose` column), never applied, never change `capture_state`, and are ignored when a later
+  decision or run looks for the capture's current candidates.
+- Admin report: per capture, the runs side by side (extracted fields, validation result, tokens, cache hit/miss,
+  cost).
+- After I review the comparison, the captures are processed by the normal cascade (their NEW decision then creates
+  the recipes). Also propose how all other `AWAITING_EXTRACTION` captures get reprocessed after deployment (their
+  jobs are `done`).
+
+## API key health check (dead man's switch)
+`DEADMAN_URL` exists only in `deploy/backup.sh` (host cron, curl); the app has no such mechanism yet.
+- New: `DEADMAN_API_KEY_URL` (env, via `compose.yaml`), configurable schedule (default daily) and timeout. Unset →
+  disabled, one WARN at startup.
+- "Valid" = authenticates AND can serve requests (credit): a minimal Messages request to the Haiku model
+  (`max_tokens: 0` if the docs confirm it is allowed and bills no output; plain request: no system prompt, images,
+  structured output, streaming or thinking).
+- Ping the URL only on success. On failure no ping, ERROR log with error type and HTTP status, never the key or
+  headers. Ask me before using the provider's /fail endpoint (healthchecks.io).
+- Record each check (time, success, error type, tokens, cost) next to the run usage, or in a small table.
+- Must not share a lock or queue slot with extraction jobs, nor block them.
+- Tests with a stubbed client: success → ping, auth error → no ping, credit error → no ping, URL unset → disabled.
+- Verify with the real API that an invalid key fails the check; tell me whether the zero-credit case could be
+  verified, do not assume it.
+
+## Tests
+- Stubbed client; no real API calls in CI. One opt-in test against the real API (`CLAUDE_IT=true`).
+- Cascade order and stop conditions, validation, transient vs. non-retryable errors, user fields never overwritten,
+  comparison runs never applied, the force endpoint, cost computation, per-recipe stats aggregation.
+
+## Out of scope
+Batch API, recipe merging, any change to the Android client.
+
+## Working mode
+1. Read the codebase and present a plan first: affected classes, migration, config keys, DTO / schema, validation
+   rules, cascade orchestration, new endpoints. Wait for my approval.
+   Record decisions made during planning in `CLAUDE.md` ("LLM extraction"), replacing "not implemented yet" when done.
+2. If the Claude docs contradict this prompt, follow the docs and tell me what differed.

@@ -84,14 +84,30 @@ public class RecipeRepository {
     }
 
     /**
+     * The newest capture photo of recipe {@code r}: a photo or screenshot attachment, or the photo found in a PDF
+     * attachment ({@code pdf_image}).
+     */
+    private static final String CAPTURE_PHOTO = """
+            (SELECT p.blob_sha256
+             FROM recipe_revision v
+             JOIN LATERAL (SELECT a.blob_sha256, a.name FROM capture_attachment a
+                           WHERE a.capture_id = v.capture_id AND a.role IN ('image', 'screenshot')
+                           UNION ALL
+                           SELECT i.blob_sha256, i.attachment_name FROM pdf_image i
+                           WHERE i.capture_id = v.capture_id AND i.blob_sha256 IS NOT NULL) p ON true
+             WHERE v.recipe_id = r.id
+             ORDER BY v.created_at DESC, p.name
+             LIMIT 1)""";
+
+    /**
      * Points the head to a revision and refreshes the copied search/display columns. The source summary changes only
      * when the revision comes from a capture (a user edit keeps it). The thumbnail: the server copy of the head's
-     * main photo ({@code web_image}), else the newest photo or screenshot of a capture behind the recipe; a photo
-     * downloaded later is set by {@link #setWebImageThumbnail}.
+     * main photo ({@code web_image}), else the newest capture photo; a photo downloaded later is set by
+     * {@link #setWebImageThumbnail}, one found in a PDF later by {@link #refreshThumbnails}.
      */
     public void moveHead(UUID recipeId, UUID revisionId, JsonNode content, UUID captureId) {
         jdbc.sql("""
-                        UPDATE recipe SET head_revision_id = :revisionId, title = :title, ingredients_text = :ingredients,
+                        UPDATE recipe r SET head_revision_id = :revisionId, title = :title, ingredients_text = :ingredients,
                                source_summary = CASE WHEN CAST(:captureId AS uuid) IS NULL THEN source_summary ELSE (
                                    SELECT coalesce(nullif(c.body->'source'->>'siteName', ''),
                                                    substring(c.source_url from '^[a-z]+://(?:www\\.)?([^/:?#]+)'),
@@ -99,12 +115,9 @@ public class RecipeRepository {
                                    FROM capture c WHERE c.id = :captureId) END,
                                thumbnail_blob = coalesce(
                                    (SELECT w.blob_sha256 FROM web_image w WHERE w.url = CAST(:imageUrl AS text)),
-                                   (SELECT a.blob_sha256
-                                    FROM recipe_revision v JOIN capture_attachment a ON a.capture_id = v.capture_id
-                                    WHERE v.recipe_id = :recipeId AND a.role IN ('image', 'screenshot')
-                                    ORDER BY v.created_at DESC, a.name LIMIT 1)),
+                                   %s),
                                updated_at = now()
-                        WHERE id = :recipeId""")
+                        WHERE r.id = :recipeId""".formatted(CAPTURE_PHOTO))
                 .param("recipeId", recipeId)
                 .param("revisionId", revisionId)
                 .param("title", RecipeContent.title(content))
@@ -123,6 +136,28 @@ public class RecipeRepository {
                           AND trim(h.content->'images'->>0) = :url AND r.thumbnail_blob IS DISTINCT FROM :sha256""")
                 .param("url", url)
                 .param("sha256", blobSha256)
+                .update();
+    }
+
+    /**
+     * Recomputes the thumbnail of the live recipes behind a capture, after a photo of it was found later (in a PDF);
+     * returns how many changed.
+     */
+    public int refreshThumbnails(UUID captureId) {
+        return jdbc.sql("""
+                        WITH target AS (
+                            SELECT r.id, coalesce(
+                                       (SELECT w.blob_sha256 FROM recipe_revision h JOIN web_image w
+                                            ON w.url = trim(h.content->'images'->>0)
+                                        WHERE h.id = r.head_revision_id),
+                                       %s) AS thumbnail
+                            FROM recipe r
+                            WHERE r.deleted_at IS NULL AND r.merged_into IS NULL
+                              AND EXISTS (SELECT 1 FROM recipe_revision v WHERE v.recipe_id = r.id AND v.capture_id = :captureId))
+                        UPDATE recipe r SET thumbnail_blob = t.thumbnail, updated_at = now()
+                        FROM target t
+                        WHERE r.id = t.id AND r.thumbnail_blob IS DISTINCT FROM t.thumbnail""".formatted(CAPTURE_PHOTO))
+                .param("captureId", captureId)
                 .update();
     }
 

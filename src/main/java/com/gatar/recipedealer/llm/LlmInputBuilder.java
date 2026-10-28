@@ -1,28 +1,21 @@
 package com.gatar.recipedealer.llm;
 
-import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
-import javax.imageio.ImageWriteParam;
-import javax.imageio.ImageWriter;
-import javax.imageio.stream.MemoryCacheImageOutputStream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import com.gatar.recipedealer.blob.BlobStore;
+import com.gatar.recipedealer.common.Images;
 import com.gatar.recipedealer.processing.Capture;
 
 import tools.jackson.databind.JsonNode;
@@ -167,52 +160,19 @@ public class LlmInputBuilder {
             return List.of(new ClaudeClient.Image(mediaType, bytes));
         }
         if (height > 2L * width && height > max) {
-            BufferedImage scaled = scale(image, Math.min(1.0, (double) max / width));
+            BufferedImage scaled = Images.scale(image, Math.min(1.0, (double) max / width));
             List<ClaudeClient.Image> tiles = new ArrayList<>();
             int tileHeight = max;
             for (int top = 0; ; top += tileHeight - TILE_OVERLAP) {
                 int bottom = Math.min(scaled.getHeight(), top + tileHeight);
-                tiles.add(new ClaudeClient.Image("image/jpeg", jpeg(scaled.getSubimage(0, top, scaled.getWidth(), bottom - top))));
+                tiles.add(new ClaudeClient.Image("image/jpeg", Images.jpeg(scaled.getSubimage(0, top, scaled.getWidth(), bottom - top))));
                 if (bottom >= scaled.getHeight()) {
                     break;
                 }
             }
             return tiles;
         }
-        return List.of(new ClaudeClient.Image("image/jpeg", jpeg(scale(image, Math.min(1.0, (double) max / Math.max(width, height))))));
-    }
-
-    /** RGB copy (transparency on white) scaled by {@code factor}. */
-    private static BufferedImage scale(BufferedImage source, double factor) {
-        int width = Math.max(1, (int) Math.round(source.getWidth() * factor));
-        int height = Math.max(1, (int) Math.round(source.getHeight() * factor));
-        BufferedImage target = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = target.createGraphics();
-        try {
-            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-            g.setColor(Color.WHITE);
-            g.fillRect(0, 0, width, height);
-            g.drawImage(source, 0, 0, width, height, null);
-        } finally {
-            g.dispose();
-        }
-        return target;
-    }
-
-    private static byte[] jpeg(BufferedImage image) throws IOException {
-        ImageWriter writer = ImageIO.getImageWritersByFormatName("jpeg").next();
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        try (var stream = new MemoryCacheImageOutputStream(out)) {
-            ImageWriteParam param = writer.getDefaultWriteParam();
-            param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-            param.setCompressionQuality(0.85f);
-            writer.setOutput(stream);
-            writer.write(null, new IIOImage(image, null, null), param);
-        } finally {
-            writer.dispose();
-        }
-        return out.toByteArray();
+        return List.of(new ClaudeClient.Image("image/jpeg", Images.jpeg(Images.fit(image, max))));
     }
 
     private static boolean isPdf(Capture.Attachment attachment) {

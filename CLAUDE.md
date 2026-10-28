@@ -56,6 +56,11 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   URL; poll every minute with the job worker; 404 / not an image / too large / private address = given up, other
   failures retried 1 h, 4 h, 16 h, … up to 5 attempts). `thumbnail_blob` = that copy, else the newest capture
   photo of the recipe. Never fetch from private addresses (`allow-private-addresses` is for tests only).
+- PDF photos (2026-10-28): `PdfImageService` (PDFBox, poll every minute with the job worker) searches every PDF
+  attachment once: the largest image (shorter edge ≥ 200 px, stencil masks ignored, images in forms included) of the
+  first page that has one, pages in order; no image → no photo, pages are never rendered. Stored as JPEG ≤ 1600 px
+  in `pdf_image` (one row per attachment, also for "none" / damaged) and used like a photo attachment for the
+  thumbnail. Photos / screenshots stay the thumbnail as they are (cutting the dish out with the LLM: not decided).
 - `DB_PASSWORD` stays as it is (Postgres is not published); never publish port 5432.
 
 ## Tags (agreed 2026-10-25)

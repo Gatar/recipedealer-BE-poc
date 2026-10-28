@@ -63,7 +63,9 @@ validated against it.
 
 - the photo `recipe.images[0]` (an http(s) URL), downloaded by the server in the background within about a minute
   after it becomes the head's photo; until then, or if the download fails, the next option applies;
-- else the newest photo or screenshot attachment of a capture behind the recipe;
+- else the newest photo of a capture behind the recipe: a photo or screenshot attachment, or the photo of a PDF
+  attachment (the largest image of the first page that has one, found by the server in the background within about
+  a minute; a PDF without images has none);
 - else `null`.
 
 A recipe whose thumbnail arrives later comes again in the sync feed.

@@ -25,6 +25,7 @@
         <json-schema-validator.version>3.0.6</json-schema-validator.version>
         <!-- Uses Jackson 2 (com.fasterxml), managed by Spring Boot next to Jackson 3 (tools.jackson). -->
         <anthropic-java.version>3.3.0</anthropic-java.version>
+        <pdfbox.version>3.0.8</pdfbox.version>
     </properties>
 
     <dependencies>
@@ -71,6 +72,11 @@
             <groupId>com.anthropic</groupId>
             <artifactId>anthropic-java</artifactId>
             <version>${anthropic-java.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>

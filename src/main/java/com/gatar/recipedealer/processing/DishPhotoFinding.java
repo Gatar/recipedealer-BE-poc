@@ -9,7 +9,11 @@ public record DishPhotoFinding(Photo photo) {
 
     public static final DishPhotoFinding NONE = new DishPhotoFinding(null);
 
-    /** The cut-out (a JPEG blob) and its box in the original attachment's pixels. */
-    public record Photo(String attachmentName, String blobSha256, long sizeBytes, int x, int y, int width, int height) {
+    /**
+     * The cut-out (a JPEG blob, turned upright) and its box in the original attachment's pixels; {@code rotation} is
+     * how far (degrees clockwise) it was turned.
+     */
+    public record Photo(String attachmentName, String blobSha256, long sizeBytes, int x, int y, int width, int height,
+                        int rotation) {
     }
 }

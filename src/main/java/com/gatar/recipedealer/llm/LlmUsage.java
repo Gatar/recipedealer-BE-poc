@@ -8,4 +8,11 @@ public record LlmUsage(String model, String stopReason, long inputTokens, long c
     public long promptTokens() {
         return inputTokens + cacheCreationInputTokens + cacheReadInputTokens;
     }
+
+    /** This call and a follow-up call of the same step together; the stop reason stays this call's. */
+    public LlmUsage plus(LlmUsage other) {
+        return other == null ? this : new LlmUsage(model, stopReason, inputTokens + other.inputTokens,
+                cacheCreationInputTokens + other.cacheCreationInputTokens, cacheReadInputTokens + other.cacheReadInputTokens,
+                outputTokens + other.outputTokens, latencyMs + other.latencyMs);
+    }
 }

@@ -3,6 +3,7 @@ package com.gatar.recipedealer.common;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -45,6 +46,32 @@ public final class Images {
     /** RGB copy whose longer edge is at most {@code maxEdge} (never enlarged). */
     public static BufferedImage fit(BufferedImage source, int maxEdge) {
         return scale(source, Math.min(1.0, (double) maxEdge / Math.max(source.getWidth(), source.getHeight())));
+    }
+
+    /** RGB copy turned clockwise by {@code degrees} (a multiple of 90); the source itself when it is 0. */
+    public static BufferedImage rotate(BufferedImage source, int degrees) {
+        int turns = Math.floorMod(degrees / 90, 4);
+        if (turns == 0) {
+            return source;
+        }
+        int width = source.getWidth();
+        int height = source.getHeight();
+        boolean swap = turns % 2 == 1;
+        BufferedImage target = new BufferedImage(swap ? height : width, swap ? width : height, BufferedImage.TYPE_INT_RGB);
+        AffineTransform transform = new AffineTransform();
+        switch (turns) {
+            case 1 -> transform.translate(height, 0);
+            case 2 -> transform.translate(width, height);
+            default -> transform.translate(0, width);
+        }
+        transform.quadrantRotate(turns);
+        Graphics2D g = target.createGraphics();
+        try {
+            g.drawImage(source, transform, null);
+        } finally {
+            g.dispose();
+        }
+        return target;
     }
 
     public static byte[] jpeg(BufferedImage image) throws IOException {

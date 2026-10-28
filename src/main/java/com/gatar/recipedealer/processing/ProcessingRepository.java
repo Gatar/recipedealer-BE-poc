@@ -120,8 +120,8 @@ public class ProcessingRepository {
                     .update();
         }
         jdbc.sql("""
-                        INSERT INTO dish_photo (run_id, capture_id, attachment_name, blob_sha256, x, y, width, height)
-                        VALUES (:runId, :captureId, :name, :sha256, :x, :y, :width, :height)""")
+                        INSERT INTO dish_photo (run_id, capture_id, attachment_name, blob_sha256, x, y, width, height, rotation)
+                        VALUES (:runId, :captureId, :name, :sha256, :x, :y, :width, :height, :rotation)""")
                 .param("runId", runId)
                 .param("captureId", captureId)
                 .param("name", photo == null ? null : photo.attachmentName())
@@ -130,6 +130,7 @@ public class ProcessingRepository {
                 .param("y", photo == null ? null : photo.y())
                 .param("width", photo == null ? null : photo.width())
                 .param("height", photo == null ? null : photo.height())
+                .param("rotation", photo == null ? 0 : photo.rotation())
                 .update();
     }
 

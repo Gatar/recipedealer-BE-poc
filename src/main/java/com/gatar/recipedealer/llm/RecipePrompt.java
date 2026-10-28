@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -19,7 +20,7 @@ import tools.jackson.databind.node.ObjectNode;
  */
 public final class RecipePrompt {
 
-    public static final String VERSION = "p2";
+    public static final String VERSION = "p3";
 
     /** Provenance stage of every field the model produced; a weak stage in {@code ReviewPolicy}. */
     public static final String STAGE = "llm";
@@ -67,9 +68,24 @@ public final class RecipePrompt {
             photograph of the prepared dish (the food itself; not text, not a list of ingredients, not a person, a \
             logo, a drawing or an advertisement), set found to true, image to that image's number, and left, top, \
             right, bottom to the edges of the photograph within that image, in thousandths of the image's width \
-            (left, right) and height (top, bottom), measured from its top-left corner. Fit the box tightly around \
-            the photograph and leave out the text around it. When several images show the dish, choose the largest \
-            photograph. Otherwise, and when there are no images, set found to false and all numbers to 0.""";
+            (left, right) and height (top, bottom), measured from its top-left corner as the image is given (not \
+            turned). Fit the box tightly around the photograph and leave out the text around it. Set rotation to how \
+            many degrees (0, 90, 180 or 270) the image has to be turned clockwise so that the page and the \
+            photograph are upright; judge it by the direction of the text. When several images show the dish, \
+            choose the largest photograph. Otherwise, and when there are no images, set found to false and all \
+            numbers to 0.""";
+
+    /** Second look at the dish photo: a generous cut-out around the box of the first answer. */
+    public static final String DISH_PHOTO_PROMPT = """
+            You locate the photograph of a prepared dish in an image. The image is a generous cut-out around that \
+            photograph from a cookbook page, a recipe card or a screenshot, so it may also contain text, page edges, \
+            decorations or parts of other pictures, and it may be turned sideways or upside down. Return the edges \
+            of the photograph of the dish as left, top, right and bottom, in thousandths of the image's width (left, \
+            right) and height (top, bottom), measured from the image's top-left corner as it is given (do not turn \
+            it). Include the whole photograph, also the part of a plate or pot that reaches the photograph's edge, \
+            and leave out the text, captions and margins around it. A photograph printed with soft, faded edges ends \
+            where the picture fades into the plain page. Set found to false and all numbers to 0 when the image \
+            contains no photograph of a dish.""";
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -103,11 +119,24 @@ public final class RecipePrompt {
         dishPhoto.put("top", integer);
         dishPhoto.put("right", integer);
         dishPhoto.put("bottom", integer);
+        dishPhoto.put("rotation", integer);
         properties.put("dishPhoto", object(dishPhoto));
 
         Map<String, Object> schema = new LinkedHashMap<>(object(properties));
         schema.put("$defs", Map.of("group", group));
         return schema;
+    }
+
+    /** Output schema of {@link #DISH_PHOTO_PROMPT}. */
+    public static Map<String, Object> dishPhotoSchema() {
+        Map<String, Object> integer = Map.of("type", "integer");
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put("found", Map.of("type", "boolean"));
+        properties.put("left", integer);
+        properties.put("top", integer);
+        properties.put("right", integer);
+        properties.put("bottom", integer);
+        return object(properties);
     }
 
     private static Map<String, Object> object(Map<String, Object> properties) {
@@ -127,8 +156,15 @@ public final class RecipePrompt {
     public record Parsed(boolean recipeFound, ObjectNode recipe, Map<String, String> provenance, DishPhoto dishPhoto) {
     }
 
-    /** Box of the dish photo in image {@code image}, edges in thousandths of the image's width and height. */
-    public record DishPhoto(int image, int left, int top, int right, int bottom) {
+    /**
+     * Box of the dish photo in image {@code image}, edges in thousandths of the image's width and height;
+     * {@code rotation} is how far (degrees clockwise) the image has to be turned to be upright.
+     */
+    public record DishPhoto(int image, Box box, int rotation) {
+    }
+
+    /** Edges in thousandths of an image's width (left, right) and height (top, bottom). */
+    public record Box(int left, int top, int right, int bottom) {
     }
 
     /** @throws IllegalArgumentException if the text is not a JSON object */
@@ -197,14 +233,49 @@ public final class RecipePrompt {
             return null;
         }
         Integer image = bounded(node.get("image"), 1, Integer.MAX_VALUE);
+        Box box = box(node);
+        if (image == null || box == null) {
+            return null;
+        }
+        Integer rotation = bounded(node.get("rotation"), 0, 270);
+        return new DishPhoto(image, box, rotation == null || rotation % 90 != 0 ? 0 : rotation);
+    }
+
+    /** A plausible box from the edges in {@code node}, else null. */
+    private static Box box(JsonNode node) {
         Integer left = bounded(node.get("left"), 0, 1000);
         Integer top = bounded(node.get("top"), 0, 1000);
         Integer right = bounded(node.get("right"), 0, 1000);
         Integer bottom = bounded(node.get("bottom"), 0, 1000);
-        if (image == null || left == null || top == null || right == null || bottom == null || left >= right || top >= bottom) {
+        if (left == null || top == null || right == null || bottom == null || left >= right || top >= bottom) {
             return null;
         }
-        return new DishPhoto(image, left, top, right, bottom);
+        return new Box(left, top, right, bottom);
+    }
+
+    /**
+     * The answer to {@link #DISH_PHOTO_PROMPT}: the box, or empty when the model found no dish photo.
+     *
+     * @throws IllegalArgumentException if the output is not JSON or the box is impossible
+     */
+    public static Optional<Box> parseDishPhotoBox(String text) {
+        JsonNode root;
+        try {
+            root = JSON.readTree(text);
+        } catch (JacksonException e) {
+            throw new IllegalArgumentException("output is not valid JSON", e);
+        }
+        if (root == null || !root.isObject()) {
+            throw new IllegalArgumentException("output is not a JSON object");
+        }
+        if (!root.path("found").asBoolean(false)) {
+            return Optional.empty();
+        }
+        Box box = box(root);
+        if (box == null) {
+            throw new IllegalArgumentException("impossible box");
+        }
+        return Optional.of(box);
     }
 
     /** Copies non-empty groups (blank items dropped); returns whether any item was copied. */

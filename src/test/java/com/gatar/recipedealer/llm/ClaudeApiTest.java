@@ -43,8 +43,8 @@ class ClaudeApiTest {
         var properties = properties(System.getenv("ANTHROPIC_API_KEY"));
         var blobs = new FileSystemBlobStore(dir);
         var inputs = new LlmInputBuilder(blobs, properties);
-        var extractor = new ClaudeExtractor(HAIKU, AnthropicClaudeClient.create(properties, null), inputs,
-                new DishPhotoCropper(blobs, inputs));
+        var client = AnthropicClaudeClient.create(properties, null);
+        var extractor = new ClaudeExtractor(HAIKU, client, inputs, new DishPhotoCropper(blobs, inputs, client, properties));
         var capture = new Capture(UUID.randomUUID(), Instant.now(), UUID.randomUUID(), UUID.randomUUID(), 1,
                 "0".repeat(64), JsonMapper.builder().build().readTree("""
                         {"source": {"type": "TEXT"}, "raw": {"text": "Racuchy babci Zosi\\n\

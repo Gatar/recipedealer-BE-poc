@@ -64,7 +64,11 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Dish photos from photos / screenshots (2026-10-28): the LLM step also returns `dishPhoto` (image number from the
   labels "Image N, name:", box in thousandths of that image, not pixels: the API may downscale internally);
   `DishPhotoCropper` cuts it out of the original attachment (tiles mapped back), JPEG ≤ 1600 px, shorter edge ≥
-  200 px, into `dish_photo` (one row per LLM run that saw images; no blob = no dish). The thumbnail of a revision
+  200 px, into `dish_photo` (one row per LLM run that saw images; no blob = no dish). The first box is rough
+  (tested on cookbook photos: often too tall or cut), so the same model takes a second look
+  (`RecipePrompt.DISH_PHOTO_PROMPT`, the box + 50 % margin on each side) and gives the exact edges; its usage is added
+  to the run; if it fails, the first box stays. `rotation` (clockwise, judged by the text: pages photographed
+  sideways or upside down) turns the cut-out upright. The thumbnail of a revision
   whose run judged the images is that cut-out or nothing (a photo of only text gives no thumbnail); revisions
   without such a run (heuristic) keep the raw attachment as the photo.
 - `DB_PASSWORD` stays as it is (Postgres is not published); never publish port 5432.
@@ -95,7 +99,7 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - SDK `com.anthropic:anthropic-java` (3.3.0) behind `ClaudeClient` (`AnthropicClaudeClient`; tests use a stub, the
   real API only in the opt-in `ClaudeApiTest` with `CLAUDE_IT=true`). It uses Jackson 2 (Boot-managed 2.21.x) next
   to Jackson 3. SDK 3.x sends the key as `Authorization: Bearer`.
-- Request: static English system prompt (`RecipePrompt.SYSTEM_PROMPT`, version `p2` in the extractor version) with
+- Request: static English system prompt (`RecipePrompt.SYSTEM_PROMPT`, version `p3` in the extractor version) with
   `cache_control` ephemeral on it, no top-level caching; structured output schema (internal, from `$defs/recipe`,
   no `images`, plus `recipeFound` and `dishPhoto`); effort `medium` for both models, thinking left at the model default; max_tokens
   16000. Input: attachments (images, PDFs base64) then the phone's text (`raw.text`, `pdfText`, `ocr.text`,

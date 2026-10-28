@@ -62,6 +62,7 @@ public class ClaudeExtractor implements RecipeExtractor {
         }
         RecipeCandidate candidate = new RecipeCandidate(JsonNodeFactory.instance.objectNode(), Map.of());
         DishPhotoFinding dishPhoto = null;
+        LlmUsage usage = response.usage();
         if (problems.isEmpty()) {
             RecipePrompt.Parsed parsed = null;
             try {
@@ -74,9 +75,11 @@ public class ClaudeExtractor implements RecipeExtractor {
                 if (!parsed.recipeFound()) {
                     problems.add("no_recipe_found");
                 }
-                dishPhoto = photos.crop(capture, input.images(), parsed.dishPhoto());
+                DishPhotoCropper.Result photo = photos.crop(capture, input.images(), parsed.dishPhoto(), step);
+                dishPhoto = photo.finding();
+                usage = usage.plus(photo.usage());
             }
         }
-        return new ExtractionResult(List.of(candidate), response.usage(), problems, dishPhoto);
+        return new ExtractionResult(List.of(candidate), usage, problems, dishPhoto);
     }
 }

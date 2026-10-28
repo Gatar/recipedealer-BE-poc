@@ -193,32 +193,62 @@ class LlmExtractionTest {
                 .query(String.class).optional().orElse(null);
     }
 
+    private Map<String, Object> dishPhoto(UUID captureId) {
+        return jdbc.sql("SELECT attachment_name, blob_sha256, x, y, width, height, rotation FROM dish_photo WHERE capture_id = :id")
+                .param("id", captureId).query().singleRow();
+    }
+
     @Test
-    void dishPhotoIsCutOutOfThePhotoAndBecomesTheThumbnail() throws IOException {
+    void dishPhotoIsRefinedCutOutTurnedUprightAndBecomesTheThumbnail() throws IOException {
+        // The first box is too tall (600 px; the dish is the top 400 px); the second look gets it with a margin
+        // (the whole 1000 × 800 photo) and answers its top half.
         claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, "Szarlotka ze zdjęciem " + suffix,
-                "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500}"));
+                        "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 750, \"rotation\": 90}"),
+                StubClaudeClient.response(HAIKU, "end_turn",
+                        "{\"found\": true, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500}", 800, 0, 0, 30));
 
         UUID captureId = processNewWithPhoto("zdjecie");
 
+        assertThat(claude.requests).hasSize(2);
         assertThat(claude.requests.getFirst().parts().getFirst()).isEqualTo(new ClaudeClient.Text("Image 1, photo.jpg:"));
-        var photo = jdbc.sql("SELECT attachment_name, blob_sha256, x, y, width, height FROM dish_photo WHERE capture_id = :id")
-                .param("id", captureId).query().singleRow();
+        var secondLook = claude.requests.get(1);
+        assertThat(secondLook.systemPrompt()).isEqualTo(RecipePrompt.DISH_PHOTO_PROMPT);
+        BufferedImage searched = ImageIO.read(new ByteArrayInputStream(((ClaudeClient.Image) secondLook.parts().getFirst()).data()));
+        assertThat(searched.getWidth()).isEqualTo(1000);
+        assertThat(searched.getHeight()).isEqualTo(800);
+        assertThat(runs(captureId).get(1)).containsEntry("input_tokens", 1800L);
+
+        var photo = dishPhoto(captureId);
         assertThat(photo).containsEntry("attachment_name", "photo.jpg").containsEntry("x", 0).containsEntry("y", 0)
-                .containsEntry("width", 1000).containsEntry("height", 400);
+                .containsEntry("width", 1000).containsEntry("height", 400).containsEntry("rotation", 90);
         assertThat(thumbnail(captureId)).isEqualTo(photo.get("blob_sha256"));
         var blob = mvc.get().uri("/v1/blobs/{sha256}", photo.get("blob_sha256"))
                 .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token)).exchange();
         assertThat(blob).hasStatusOk().hasContentType("image/jpeg");
         BufferedImage cutOut = ImageIO.read(new ByteArrayInputStream(blob.getResponse().getContentAsByteArray()));
-        assertThat(cutOut.getWidth()).isEqualTo(1000);
-        assertThat(cutOut.getHeight()).isEqualTo(400);
-        assertThat(new Color(cutOut.getRGB(500, 200)).getRed()).isGreaterThan(200);
+        assertThat(cutOut.getWidth()).isEqualTo(400);
+        assertThat(cutOut.getHeight()).isEqualTo(1000);
+        assertThat(new Color(cutOut.getRGB(200, 500)).getRed()).isGreaterThan(200);
+    }
+
+    @Test
+    void failedSecondLookKeepsTheFirstBox() throws IOException {
+        claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, "Szarlotka z pierwszym wycinkiem " + suffix,
+                        "{\"found\": true, \"image\": 1, \"left\": 0, \"top\": 0, \"right\": 1000, \"bottom\": 500, \"rotation\": 0}"),
+                StubClaudeClient.error(LlmException.Kind.TRANSIENT, "overloaded_error", 529));
+
+        UUID captureId = processNewWithPhoto("pierwszy");
+
+        assertThat(runs(captureId).get(1)).containsEntry("status", "succeeded");
+        assertThat(dishPhoto(captureId)).containsEntry("width", 1000).containsEntry("height", 400)
+                .containsEntry("rotation", 0);
+        assertThat(thumbnail(captureId)).isNotNull();
     }
 
     @Test
     void photoWithoutTheDishGivesNoThumbnail() throws IOException {
         claude.willAnswer(HAIKU, StubClaudeClient.recipeWithDishPhoto(HAIKU, "Szarlotka bez zdjęcia " + suffix,
-                "{\"found\": false, \"image\": 0, \"left\": 0, \"top\": 0, \"right\": 0, \"bottom\": 0}"));
+                "{\"found\": false, \"image\": 0, \"left\": 0, \"top\": 0, \"right\": 0, \"bottom\": 0, \"rotation\": 0}"));
 
         UUID captureId = processNewWithPhoto("tekst");
 

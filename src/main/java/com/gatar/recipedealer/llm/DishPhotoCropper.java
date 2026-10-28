@@ -3,8 +3,8 @@ package com.gatar.recipedealer.llm;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import javax.imageio.ImageIO;
 
@@ -23,7 +23,8 @@ import com.gatar.recipedealer.processing.DishPhotoFinding;
  * Cuts the dish photo the model pointed at out of the original attachment (not out of the downscaled copy the model
  * saw) and stores it upright as a JPEG blob. The box of the extraction answer is rough, so the same model takes a
  * second look ({@link RecipePrompt#DISH_PHOTO_PROMPT}) at a cut-out with a wide margin around it and gives the exact
- * edges; when that call fails or answers nonsense, the first box stays. A box that maps to no decodable original, or
+ * edges, and picks the upright one of four turned copies of the page; when that call fails or answers nonsense, the
+ * first box stays (not turned). A box that maps to no decodable original, or
  * whose shorter edge is below {@link Images#PHOTO_MIN_EDGE}, counts as no photo.
  */
 @Component
@@ -31,6 +32,8 @@ public class DishPhotoCropper {
 
     /** Margin around the first box for the second look, as a share of the box's width and height on each side. */
     static final double SEARCH_MARGIN = 0.5;
+    /** Longer edge of the page versions in the second look: enough to see which way the text runs. */
+    static final int PAGE_VERSION_EDGE = 768;
 
     private static final Logger log = LoggerFactory.getLogger(DishPhotoCropper.class);
 
@@ -74,24 +77,22 @@ public class DishPhotoCropper {
         Region search = expand(photo, original);
 
         LlmUsage usage = null;
+        int rotation = 0;
         try {
-            BufferedImage area = Images.fit(original.getSubimage(search.x(), search.y(), search.width(), search.height()),
-                    properties.maxImageEdge());
             ClaudeClient.Response response = client.extract(new ClaudeClient.Request(step.model(), step.effort(),
-                    RecipePrompt.DISH_PHOTO_PROMPT, RecipePrompt.dishPhotoSchema(), List.of(
-                            new ClaudeClient.Image("image/jpeg", Images.jpeg(area)),
-                            new ClaudeClient.Text("Find the edges of the photograph of the dish in this image."))));
+                    RecipePrompt.DISH_PHOTO_PROMPT, RecipePrompt.dishPhotoSchema(), secondLookParts(original, search)));
             usage = response.usage();
             if (response.refusalCategory() != null) {
                 log.info("Capture {}: second look at the dish photo refused ({}), the first box stays", capture.id(),
                         response.refusalCategory());
             } else {
-                Optional<RecipePrompt.Box> refined = RecipePrompt.parseDishPhotoBox(response.text());
-                if (refined.isEmpty()) {
+                RecipePrompt.SecondLook answer = RecipePrompt.parseSecondLook(response.text());
+                if (answer.box() == null) {
                     log.info("Capture {}: no dish photo on the second look", capture.id());
                     return new Result(DishPhotoFinding.NONE, usage);
                 }
-                Region second = within(search, refined.get(), original);
+                rotation = answer.rotation();
+                Region second = within(search, answer.box(), original);
                 if (plausibleRefinement(photo, second)) {
                     photo = second;
                 } else {
@@ -108,11 +109,26 @@ public class DishPhotoCropper {
                     sent.attachment().name());
             return new Result(DishPhotoFinding.NONE, usage);
         }
-        BufferedImage cutOut = Images.rotate(original.getSubimage(photo.x(), photo.y(), photo.width(), photo.height()),
-                dishPhoto.rotation());
+        BufferedImage cutOut = Images.rotate(original.getSubimage(photo.x(), photo.y(), photo.width(), photo.height()), rotation);
         BlobRef blob = blobs.put(new ByteArrayInputStream(Images.jpeg(Images.fit(cutOut, Images.PHOTO_MAX_EDGE))));
         return new Result(new DishPhotoFinding(new DishPhotoFinding.Photo(sent.attachment().name(), blob.sha256(),
-                blob.sizeBytes(), photo.x(), photo.y(), photo.width(), photo.height(), dishPhoto.rotation())), usage);
+                blob.sizeBytes(), photo.x(), photo.y(), photo.width(), photo.height(), rotation)), usage);
+    }
+
+    /** The cut-out around the first box, then the whole page in the four clockwise turns of {@link RecipePrompt#PAGE_VERSIONS}. */
+    List<ClaudeClient.Part> secondLookParts(BufferedImage original, Region search) throws IOException {
+        List<ClaudeClient.Part> parts = new ArrayList<>();
+        parts.add(new ClaudeClient.Text("The cut-out:"));
+        parts.add(new ClaudeClient.Image("image/jpeg", Images.jpeg(Images.fit(
+                original.getSubimage(search.x(), search.y(), search.width(), search.height()), properties.maxImageEdge()))));
+        BufferedImage page = Images.fit(original, PAGE_VERSION_EDGE);
+        for (int i = 0; i < RecipePrompt.PAGE_VERSIONS.size(); i++) {
+            parts.add(new ClaudeClient.Text("Page version " + RecipePrompt.PAGE_VERSIONS.get(i) + ":"));
+            parts.add(new ClaudeClient.Image("image/jpeg", Images.jpeg(Images.rotate(page, i * 90))));
+        }
+        parts.add(new ClaudeClient.Text("Find the edges of the photograph of the dish in the cut-out, and choose the "
+                + "page version in which the text reads normally."));
+        return parts;
     }
 
     /** The box (thousandths of {@code area}) in the original's pixels, clamped to the original. */

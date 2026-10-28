@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -20,7 +19,7 @@ import tools.jackson.databind.node.ObjectNode;
  */
 public final class RecipePrompt {
 
-    public static final String VERSION = "p4";
+    public static final String VERSION = "p5";
 
     /** Provenance stage of every field the model produced; a weak stage in {@code ReviewPolicy}. */
     public static final String STAGE = "llm";
@@ -69,42 +68,36 @@ public final class RecipePrompt {
             logo, a drawing or an advertisement), set found to true, image to that image's number, and left, top, \
             right, bottom to the edges of the photograph within that image, in thousandths of the image's width \
             (left, right) and height (top, bottom), measured from its top-left corner as the image is given (not \
-            turned). Fit the box tightly around the photograph and leave out the text around it. Set textTop to the \
-            side of the image that the tops of the letters of the page's text point to: "up" when the text reads \
-            normally, "down" when it is upside down, "left" or "right" when the page was photographed sideways. \
-            When several images show the dish, \
+            turned). Fit the box tightly around the photograph and leave out the text around it. When several \
+            images show the dish, \
             choose the largest photograph. Otherwise, and when there are no images, set found to false and all \
             numbers to 0.""";
 
-    /** Second look at the dish photo: a generous cut-out around the box of the first answer. */
-    public static final String DISH_PHOTO_PROMPT = """
-            You locate the photograph of a prepared dish in an image. The image is a generous cut-out around that \
-            photograph from a cookbook page, a recipe card or a screenshot, so it may also contain text, page edges, \
-            decorations or parts of other pictures, and it may be turned sideways or upside down. Return the edges \
-            of the photograph of the dish as left, top, right and bottom, in thousandths of the image's width (left, \
-            right) and height (top, bottom), measured from the image's top-left corner as it is given (do not turn \
-            it). Include the whole photograph, also the part of a plate or pot that reaches the photograph's edge, \
-            and leave out the text, captions and margins around it. A photograph printed with soft, faded edges ends \
-            where the picture fades into the plain page. Set found to false and all numbers to 0 when the image \
-            contains no photograph of a dish.""";
-
     /**
-     * Where the tops of the letters point; the rotation is computed from it ({@link #rotation}). Asked for the rotation
-     * itself, the model mixed up clockwise and counter-clockwise.
+     * Second look at the dish photo: a generous cut-out around the box of the first answer, and the whole page in
+     * four orientations to pick the upright one (asked to state the rotation or the direction of the text instead,
+     * Haiku and Sonnet both got sideways pages wrong; picking the readable version is recognition, not imagination).
      */
-    static final List<String> TEXT_TOP = List.of("up", "right", "down", "left");
+    public static final String DISH_PHOTO_PROMPT = """
+            You get two things from a photographed cookbook page, recipe card or screenshot.
+
+            First, the cut-out: a generous cut-out around a photograph of a prepared dish. It may also contain text, \
+            page edges, decorations or parts of other pictures, and it may be turned sideways or upside down. Return \
+            the edges of the photograph of the dish as left, top, right and bottom, in thousandths of the cut-out's \
+            width (left, right) and height (top, bottom), measured from its top-left corner as it is given (do not \
+            turn it). Include the whole photograph, also the part of a plate or pot that reaches the photograph's \
+            edge, and leave out the text, captions and margins around it. A photograph printed with soft, faded \
+            edges ends where the picture fades into the plain page. Set found to false and the edges to 0 when the \
+            cut-out contains no photograph of a dish.
+
+            Second, the whole page four times, labelled A, B, C and D, each turned differently. Set upright to the \
+            label of the version in which the text reads normally: lines run from left to right and the letters \
+            stand upright.""";
+
+    /** Labels of the page versions in the second look, in the order of the clockwise turn they show. */
+    public static final List<String> PAGE_VERSIONS = List.of("A", "B", "C", "D");
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
-
-    /** Degrees clockwise that turn an image upright whose letter tops point to {@code textTop}. */
-    static int rotation(String textTop) {
-        return switch (textTop) {
-            case "right" -> 270;
-            case "down" -> 180;
-            case "left" -> 90;
-            default -> 0;
-        };
-    }
 
     private RecipePrompt() {
     }
@@ -136,7 +129,6 @@ public final class RecipePrompt {
         dishPhoto.put("top", integer);
         dishPhoto.put("right", integer);
         dishPhoto.put("bottom", integer);
-        dishPhoto.put("textTop", Map.of("type", "string", "enum", TEXT_TOP));
         properties.put("dishPhoto", object(dishPhoto));
 
         Map<String, Object> schema = new LinkedHashMap<>(object(properties));
@@ -153,6 +145,7 @@ public final class RecipePrompt {
         properties.put("top", integer);
         properties.put("right", integer);
         properties.put("bottom", integer);
+        properties.put("upright", Map.of("type", "string", "enum", PAGE_VERSIONS));
         return object(properties);
     }
 
@@ -173,11 +166,17 @@ public final class RecipePrompt {
     public record Parsed(boolean recipeFound, ObjectNode recipe, Map<String, String> provenance, DishPhoto dishPhoto) {
     }
 
+    /** Box of the dish photo in image {@code image}, edges in thousandths of the image's width and height. */
+    public record DishPhoto(int image, Box box) {
+    }
+
     /**
-     * Box of the dish photo in image {@code image}, edges in thousandths of the image's width and height;
-     * {@code rotation} is how far (degrees clockwise) the image has to be turned to be upright.
+     * The answer to {@link #DISH_PHOTO_PROMPT}.
+     *
+     * @param box      in thousandths of the cut-out, null when the model found no dish photo in it
+     * @param rotation degrees clockwise that turn the page upright (the chosen page version)
      */
-    public record DishPhoto(int image, Box box, int rotation) {
+    public record SecondLook(Box box, int rotation) {
     }
 
     /** Edges in thousandths of an image's width (left, right) and height (top, bottom). */
@@ -254,7 +253,7 @@ public final class RecipePrompt {
         if (image == null || box == null) {
             return null;
         }
-        return new DishPhoto(image, box, rotation(node.path("textTop").asString("up")));
+        return new DishPhoto(image, box);
     }
 
     /** A plausible box from the edges in {@code node}, else null. */
@@ -269,12 +268,8 @@ public final class RecipePrompt {
         return new Box(left, top, right, bottom);
     }
 
-    /**
-     * The answer to {@link #DISH_PHOTO_PROMPT}: the box, or empty when the model found no dish photo.
-     *
-     * @throws IllegalArgumentException if the output is not JSON or the box is impossible
-     */
-    public static Optional<Box> parseDishPhotoBox(String text) {
+    /** @throws IllegalArgumentException if the output is not JSON or the box is impossible */
+    public static SecondLook parseSecondLook(String text) {
         JsonNode root;
         try {
             root = JSON.readTree(text);
@@ -284,14 +279,16 @@ public final class RecipePrompt {
         if (root == null || !root.isObject()) {
             throw new IllegalArgumentException("output is not a JSON object");
         }
+        int version = PAGE_VERSIONS.indexOf(root.path("upright").asString(""));
+        int rotation = version < 0 ? 0 : version * 90;
         if (!root.path("found").asBoolean(false)) {
-            return Optional.empty();
+            return new SecondLook(null, rotation);
         }
         Box box = box(root);
         if (box == null) {
             throw new IllegalArgumentException("impossible box");
         }
-        return Optional.of(box);
+        return new SecondLook(box, rotation);
     }
 
     /** Copies non-empty groups (blank items dropped); returns whether any item was copied. */

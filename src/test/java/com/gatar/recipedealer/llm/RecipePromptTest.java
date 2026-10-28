@@ -55,14 +55,8 @@ class RecipePromptTest {
     @Test
     void dishPhotoBoxIsReadWhenFoundAndPlausible() {
         assertThat(RecipePrompt.parse("""
-                {"recipeFound": true, "dishPhoto": {"found": true, "image": 2, "left": 0, "top": 120, "right": 1000, "bottom": 480,
-                 "textTop": "right"}}""")
-                .dishPhoto()).isEqualTo(new RecipePrompt.DishPhoto(2, new RecipePrompt.Box(0, 120, 1000, 480), 270));
-        assertThat(RecipePrompt.parse("""
-                {"recipeFound": true, "dishPhoto": {"found": true, "image": 1, "left": 0, "top": 0, "right": 10, "bottom": 10,
-                 "textTop": "sideways"}}""")
-                .dishPhoto().rotation()).isZero();
-        assertThat(RecipePrompt.TEXT_TOP).map(RecipePrompt::rotation).containsExactly(0, 270, 180, 90);
+                {"recipeFound": true, "dishPhoto": {"found": true, "image": 2, "left": 0, "top": 120, "right": 1000, "bottom": 480}}""")
+                .dishPhoto()).isEqualTo(new RecipePrompt.DishPhoto(2, new RecipePrompt.Box(0, 120, 1000, 480)));
         assertThat(RecipePrompt.parse("""
                 {"recipeFound": true, "dishPhoto": {"found": false, "image": 0, "left": 0, "top": 0, "right": 0, "bottom": 0}}""")
                 .dishPhoto()).isNull();
@@ -74,15 +68,18 @@ class RecipePromptTest {
 
     @Test
     void secondLookAtTheDishPhotoIsParsed() {
-        assertThat(RecipePrompt.parseDishPhotoBox("""
-                {"found": true, "left": 10, "top": 20, "right": 900, "bottom": 700}"""))
-                .contains(new RecipePrompt.Box(10, 20, 900, 700));
-        assertThat(RecipePrompt.parseDishPhotoBox("""
-                {"found": false, "left": 0, "top": 0, "right": 0, "bottom": 0}""")).isEmpty();
-        assertThatThrownBy(() -> RecipePrompt.parseDishPhotoBox("""
-                {"found": true, "left": 900, "top": 20, "right": 10, "bottom": 700}"""))
+        assertThat(RecipePrompt.parseSecondLook("""
+                {"found": true, "left": 10, "top": 20, "right": 900, "bottom": 700, "upright": "B"}"""))
+                .isEqualTo(new RecipePrompt.SecondLook(new RecipePrompt.Box(10, 20, 900, 700), 90));
+        assertThat(RecipePrompt.parseSecondLook("""
+                {"found": false, "left": 0, "top": 0, "right": 0, "bottom": 0, "upright": "D"}"""))
+                .isEqualTo(new RecipePrompt.SecondLook(null, 270));
+        assertThat(RecipePrompt.parseSecondLook("""
+                {"found": true, "left": 10, "top": 20, "right": 900, "bottom": 700, "upright": "X"}""").rotation()).isZero();
+        assertThatThrownBy(() -> RecipePrompt.parseSecondLook("""
+                {"found": true, "left": 900, "top": 20, "right": 10, "bottom": 700, "upright": "A"}"""))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> RecipePrompt.parseDishPhotoBox("{\"found\": tr")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RecipePrompt.parseSecondLook("{\"found\": tr")).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -98,10 +95,11 @@ class RecipePromptTest {
         Map<String, Object> dishPhoto = (Map<String, Object>) properties.get("dishPhoto");
         assertThat(dishPhoto).containsEntry("additionalProperties", false);
         assertThat((List<String>) dishPhoto.get("required"))
-                .containsExactly("found", "image", "left", "top", "right", "bottom", "textTop");
+                .containsExactly("found", "image", "left", "top", "right", "bottom");
         Map<String, Object> secondLook = RecipePrompt.dishPhotoSchema();
         assertThat(secondLook).containsEntry("additionalProperties", false);
-        assertThat((List<String>) secondLook.get("required")).containsExactly("found", "left", "top", "right", "bottom");
+        assertThat((List<String>) secondLook.get("required"))
+                .containsExactly("found", "left", "top", "right", "bottom", "upright");
     }
 
     @Test

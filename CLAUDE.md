@@ -119,6 +119,11 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - The recipe references it in its content: `images[0] = "blob:<sha256>"`, saved as a normal USER revision (history,
   edit lock). Not a `data:` URI (rejected: bloats every sync). A revision naming an unknown `blob:` is 400
   `unknown_photo`. Thumbnail order: user photo, then `web_image`, then capture photo (`RecipeRepository`).
+- A capture may carry the ref in `recipe.images[0]` too (the app's manual entry / corrected preview); the new recipe
+  keeps it like any page photo. Not validated at upload: an unknown ref simply gives no thumbnail.
+- Unused photos (no revision, candidate, capture or recipe thumbnail names them) are deleted after 7 days by
+  `PhotoCleanupPoller` (daily 04:30, `recipedealer.photos.unused-grace`), files after the commit; older revisions
+  keep theirs so history can be restored.
 
 ## Translation of new recipes (agreed 2026-11-03)
 - The app sends header `Translate-To: <device language>` on the upload when its setting is on; stored in
@@ -160,6 +165,8 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - SDK `com.anthropic:anthropic-java` (3.3.0) behind `ClaudeClient` (`AnthropicClaudeClient`; tests use a stub, the
   real API only in the opt-in `ClaudeApiTest` with `CLAUDE_IT=true`). It uses Jackson 2 (Boot-managed 2.21.x) next
   to Jackson 3. SDK 3.x sends the key as `Authorization: Bearer`.
+- Input text also carries the phone's own recipe fields (`LlmInputBuilder.phoneRecipe`, 2026-11-03): Readability
+  leaves the recipe card out on some sites (allrecipes: no steps in `readableText`), so a re-read found nothing.
 - Request: static English system prompt (`RecipePrompt.SYSTEM_PROMPT`, version `p5` in the extractor version) with
   `cache_control` ephemeral on it, no top-level caching; structured output schema (internal, from `$defs/recipe`,
   no `images`, plus `recipeFound` and `dishPhoto`); effort `medium` for both models, thinking left at the model default; max_tokens

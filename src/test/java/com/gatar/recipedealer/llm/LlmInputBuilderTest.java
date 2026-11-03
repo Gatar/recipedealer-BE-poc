@@ -62,6 +62,25 @@ class LlmInputBuilderTest {
     private static final String IMAGE_BODY = """
             {"source": {"type": "IMAGE", "url": null}, "raw": {"ocr": {"text": "Sernik\\n1 kg twarogu"}}}""";
 
+    @Test
+    void theRecipeThePhoneExtractedIsSentAlongTheReadableText() {
+        // allrecipes: Readability keeps the introduction and leaves the recipe card (with the steps) out
+        var texts = LlmInputBuilder.texts(capture("""
+                {"source": {"type": "WEB"}, "raw": {"web": {"readableText": "Why you'll love this recipe..."}},
+                 "recipe": {"title": "Cookies", "servings": {"text": "48 cookies"},
+                            "ingredientGroups": [{"items": ["1 cup butter", "2 eggs"]}],
+                            "stepGroups": [{"items": ["Preheat the oven to 350°F."]}], "notes": []}}"""));
+
+        assertThat(texts).hasSize(2);
+        assertThat(texts.get(1)).startsWith("Recipe fields the phone extracted from the page")
+                .contains("Title: Cookies\nServings: 48 cookies\nIngredients:\n- 1 cup butter\n- 2 eggs\nSteps:\n- Preheat");
+    }
+
+    @Test
+    void aPhotoThePhoneDidNotStructureSendsOnlyItsText() {
+        assertThat(LlmInputBuilder.texts(capture(IMAGE_BODY))).hasSize(1);
+    }
+
     private static List<BufferedImage> decoded(List<ClaudeClient.Part> parts) {
         return parts.stream().filter(p -> p instanceof ClaudeClient.Image).map(p -> {
             try {

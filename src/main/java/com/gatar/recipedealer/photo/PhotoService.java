@@ -3,7 +3,10 @@ package com.gatar.recipedealer.photo;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.regex.Pattern;
 
 import javax.imageio.ImageIO;
@@ -17,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.gatar.recipedealer.auth.DevicePrincipal;
 import com.gatar.recipedealer.blob.BlobRef;
@@ -43,10 +47,12 @@ public class PhotoService {
 
     private final BlobStore blobs;
     private final JdbcClient jdbc;
+    private final TransactionTemplate tx;
 
-    public PhotoService(BlobStore blobs, JdbcClient jdbc) {
+    public PhotoService(BlobStore blobs, JdbcClient jdbc, TransactionTemplate tx) {
         this.blobs = blobs;
         this.jdbc = jdbc;
+        this.tx = tx;
     }
 
     /** @param ref {@code blob:<sha256>}, the value for {@code images[]} */
@@ -70,6 +76,59 @@ public class PhotoService {
         log.info("Stored photo {} ({}x{}, {} bytes, uploaded {} bytes) from device {}", blob.sha256(), photo.getWidth(),
                 photo.getHeight(), blob.sizeBytes(), content.length, device.deviceId());
         return new Photo(blob.sha256(), REF_PREFIX + blob.sha256(), photo.getWidth(), photo.getHeight(), blob.sizeBytes());
+    }
+
+    /**
+     * Deletes uploaded photos older than {@code olderThan} that nothing refers to: no revision (so an older version
+     * can still be restored), candidate or capture names it in {@code images}, and no recipe shows it (e.g. a photo
+     * picked in the editor and then cancelled). The files go after the commit.
+     *
+     * @return the deleted blobs
+     */
+    public List<String> deleteUnused(Duration olderThan) {
+        List<String> unused = tx.execute(status -> {
+            List<String> candidates = jdbc.sql("""
+                            SELECT u.blob_sha256 FROM user_photo u
+                            WHERE u.created_at < now() - make_interval(secs => :seconds)
+                              AND NOT EXISTS (SELECT 1 FROM recipe_revision v
+                                              WHERE v.content->'images' @> jsonb_build_array('blob:' || u.blob_sha256))
+                              AND NOT EXISTS (SELECT 1 FROM recipe_candidate c
+                                              WHERE c.content->'images' @> jsonb_build_array('blob:' || u.blob_sha256))
+                              AND NOT EXISTS (SELECT 1 FROM capture c
+                                              WHERE c.body->'recipe'->'images' @> jsonb_build_array('blob:' || u.blob_sha256))
+                              AND NOT EXISTS (SELECT 1 FROM recipe r WHERE r.thumbnail_blob = u.blob_sha256)
+                            FOR UPDATE OF u SKIP LOCKED""")
+                    .param("seconds", (double) olderThan.toSeconds())
+                    .query(String.class).list();
+            List<String> deleted = new ArrayList<>();
+            for (String sha256 : candidates) {
+                jdbc.sql("DELETE FROM user_photo WHERE blob_sha256 = :sha256").param("sha256", sha256).update();
+                // the same content can also be an attachment or another photo: then only the user_photo row goes
+                if (jdbc.sql("""
+                                DELETE FROM blob b WHERE b.sha256 = :sha256
+                                    AND NOT EXISTS (SELECT 1 FROM capture WHERE body_sha256 = b.sha256)
+                                    AND NOT EXISTS (SELECT 1 FROM capture_attachment WHERE blob_sha256 = b.sha256)
+                                    AND NOT EXISTS (SELECT 1 FROM pdf_image WHERE blob_sha256 = b.sha256)
+                                    AND NOT EXISTS (SELECT 1 FROM dish_photo WHERE blob_sha256 = b.sha256)
+                                    AND NOT EXISTS (SELECT 1 FROM web_image WHERE blob_sha256 = b.sha256)
+                                    AND NOT EXISTS (SELECT 1 FROM recipe WHERE thumbnail_blob = b.sha256)""")
+                        .param("sha256", sha256).update() == 1) {
+                    deleted.add(sha256);
+                }
+            }
+            return deleted;
+        });
+        for (String sha256 : unused) {
+            try {
+                blobs.delete(sha256);
+            } catch (IOException e) {
+                log.warn("Could not delete the file of unused photo {}", sha256, e);
+            }
+        }
+        if (!unused.isEmpty()) {
+            log.info("Deleted {} unused photo(s)", unused.size());
+        }
+        return unused;
     }
 
     /** 400 {@code unknown_photo} if a {@code blob:} entry of {@code images} is not an uploaded photo. */

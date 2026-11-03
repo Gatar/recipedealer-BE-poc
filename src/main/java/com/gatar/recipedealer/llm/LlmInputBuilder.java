@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 import com.gatar.recipedealer.blob.BlobStore;
 import com.gatar.recipedealer.common.Images;
 import com.gatar.recipedealer.processing.Capture;
+import com.gatar.recipedealer.recipe.RecipeContent;
 
 import tools.jackson.databind.JsonNode;
 
@@ -146,7 +147,45 @@ public class LlmInputBuilder {
         addSection(sections, "Text layer of the PDF", raw.path("pdfText"));
         addSection(sections, "Text recognized by the phone (OCR, may contain errors)", raw.path("ocr").path("text"));
         addSection(sections, "Readable text of the web page", raw.path("web").path("readableText"));
+        // the page's structured data (JSON-LD, microdata, recipe plugins): readable text often leaves the recipe card out
+        String found = phoneRecipe(capture.recipe());
+        if (!found.isEmpty()) {
+            sections.add("Recipe fields the phone extracted from the page (structured data or its own heuristics; may be "
+                    + "incomplete):\n" + found);
+        }
         return sections;
+    }
+
+    /** The phone's recipe as text; empty without ingredients and steps (e.g. a photo the phone did not structure). */
+    static String phoneRecipe(JsonNode recipe) {
+        List<String> ingredients = RecipeContent.ingredientLines(recipe);
+        List<String> steps = RecipeContent.stepLines(recipe);
+        if (ingredients.isEmpty() && steps.isEmpty()) {
+            return "";
+        }
+        StringBuilder text = new StringBuilder();
+        String title = RecipeContent.title(recipe);
+        if (title != null) {
+            text.append("Title: ").append(title).append('\n');
+        }
+        appendIfPresent(text, "Servings", recipe.path("servings").path("text"));
+        appendLines(text, "Ingredients", ingredients);
+        appendLines(text, "Steps", steps);
+        List<String> notes = new ArrayList<>();
+        recipe.path("notes").forEach(note -> {
+            if (note.isString() && !note.asString().isBlank()) {
+                notes.add(note.asString().strip());
+            }
+        });
+        appendLines(text, "Notes", notes);
+        return text.toString().strip();
+    }
+
+    private static void appendLines(StringBuilder text, String heading, List<String> lines) {
+        if (!lines.isEmpty()) {
+            text.append(heading).append(":\n");
+            lines.forEach(line -> text.append("- ").append(line).append('\n'));
+        }
     }
 
     private static void addSection(List<String> sections, String label, JsonNode value) {

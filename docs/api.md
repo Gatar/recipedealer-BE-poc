@@ -540,7 +540,9 @@ Body `{"tags": ["meal:dinner", …]}` replaces the recipe's tags.
 Uploads a recipe photo from the phone (gallery or camera). Body: `multipart/form-data` with part `image` (JPEG or
 PNG; at most 25 MiB). The server re-encodes it as JPEG of at most 1600 px on the longer edge, whatever was sent (EXIF
 orientation is not applied: the app sends the photo upright). The recipe shows it once an edit
-(`POST /v1/recipes/{recipeId}/revisions`) sets `images[0]` to `ref`; it then is the recipe's `thumbnailBlob`.
+(`POST /v1/recipes/{recipeId}/revisions`) sets `images[0]` to `ref`, or a capture carries `ref` in `recipe.images[0]`
+(manual entry, a corrected preview): the recipe made from it gets that photo. It then is the recipe's
+`thumbnailBlob`. A photo nothing names after 7 days (no revision, candidate, capture or recipe) is deleted.
 
 - **201** `{"blob": "<sha256>", "ref": "blob:<sha256>", "width": 1600, "height": 1200, "sizeBytes": 245678}`.
 - **400** `invalid_image`: not a readable image. **400** `invalid_request`: no part `image`.

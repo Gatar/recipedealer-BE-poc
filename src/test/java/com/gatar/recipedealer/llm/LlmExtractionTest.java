@@ -470,7 +470,11 @@ class LlmExtractionTest {
     void forcingNeedsAnExistingCaptureWithInput() {
         assertThat(force(UUID.randomUUID())).hasStatus(404);
 
-        UUID captureId = processNew(capture("bezwejscia", c -> c.withObject("raw").withObject("web").remove("readableText")));
+        // neither readable text nor a recipe the phone extracted (that is input for the LLM too)
+        UUID captureId = processNew(capture("bezwejscia", c -> {
+            c.withObject("raw").withObject("web").remove("readableText");
+            empty(c);
+        }));
         assertThat(force(captureId)).hasStatus(409).bodyJson().extractingPath("$.error").isEqualTo("no_llm_input");
     }
 

@@ -8,6 +8,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.UUID;
 
 import javax.imageio.ImageIO;
@@ -45,6 +46,9 @@ class PhotoTest {
 
     @Autowired
     JobWorker worker;
+
+    @Autowired
+    PhotoService photos;
 
     String token;
     UUID recipeId;
@@ -123,6 +127,47 @@ class PhotoTest {
 
         assertThat(result).hasStatus(201);
         assertThat(JsonPath.<Integer>read(TestAuth.body(result), "$.width")).isEqualTo(800);
+    }
+
+    private String uploaded() throws IOException {
+        return JsonPath.read(TestAuth.body(upload(png(640, 480))), "$.blob");
+    }
+
+    private void age(String blob, String interval) {
+        jdbc.sql("UPDATE user_photo SET created_at = now() - CAST(:interval AS interval) WHERE blob_sha256 = :sha")
+                .param("interval", interval).param("sha", blob).update();
+    }
+
+    private MvcTestResult blob(String sha) {
+        return mvc.get().uri("/v1/blobs/{sha}", sha).header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token)).exchange();
+    }
+
+    @Test
+    void aPhotoNothingUsesIsDeletedAfterTheGracePeriod() throws IOException {
+        String unused = uploaded();
+        String fresh = uploaded();
+        age(unused, "8 days");
+
+        assertThat(photos.deleteUnused(Duration.ofDays(7))).contains(unused).doesNotContain(fresh);
+
+        assertThat(blob(unused)).hasStatus(404);
+        assertThat(blob(fresh)).hasStatusOk();
+        assertThat(jdbc.sql("SELECT count(*) FROM user_photo WHERE blob_sha256 = :sha").param("sha", unused)
+                .query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void aPhotoOfAnOlderRevisionIsKept() throws IOException {
+        String old = uploaded();
+        assertThat(saveWithImage("blob:" + old)).hasStatus(201);
+        // a newer photo replaces it as the head's, the older revision still names it
+        String current = uploaded();
+        assertThat(saveWithImage("blob:" + current)).hasStatus(201);
+        age(old, "30 days");
+        age(current, "30 days");
+
+        assertThat(photos.deleteUnused(Duration.ofDays(7))).doesNotContain(old, current);
+        assertThat(blob(old)).hasStatusOk();
     }
 
     @Test

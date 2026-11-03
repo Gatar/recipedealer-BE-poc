@@ -97,7 +97,9 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Every NEW decision without tags (auto-NEW, the user's NEW without `tags`, manual captures) requests a tagging
   (`AutoTagRepository.request` in `ResolutionService.applyDecision`, row in `auto_tagging`); a NEW with tags chosen by
   the user, UPDATEs, forced re-reads of applied captures and existing recipes are never tagged automatically.
-- Only tags of the catalog (schema enum of the ids; `TagPrompt`, version `t1`); none is a valid answer. Input: the head
+- Only tags of the catalog (schema enum of the ids; `TagPrompt`); none is a valid answer. `t2` (user, 2026-11-03,
+  after `t1` over-tagged on production: 11 tags on guacamole, "American" for an American website): fewer tags,
+  usually one per category, cuisine of the dish not of the site, same-titled tags read with their category. Input: the head
   content as text (title, servings, times, ingredients, steps, notes), no photos. Model / effort:
   `recipedealer.tagging` (Haiku, `low`).
 - Before `done`: a pending tagging keeps the capture `processing` (`ResolutionService.updateState`); the tagging job

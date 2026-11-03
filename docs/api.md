@@ -366,7 +366,7 @@ from the runs on every request.
   "models": [{"model": "claude-haiku-5-5", "runs": 1, "inputTokens": 100, "cacheCreationInputTokens": 0,
               "cacheReadInputTokens": 0, "outputTokens": 50, "costUsd": 0.000035}],
   "runs": [{"runId": "…", "captureId": "…", "startedAt": "…", "finishedAt": "…",
-            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p5 | claude-haiku-5-5/t1",
+            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p5 | claude-haiku-5-5/t2",
             "step": "heuristic | haiku | sonnet | tagging", "purpose": "pipeline | forced | comparison",
             "model": "claude-haiku-5-5 | null",
             "status": "succeeded | rejected | awaiting_extraction | failed | running | skipped",

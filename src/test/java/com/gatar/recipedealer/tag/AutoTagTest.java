@@ -24,6 +24,7 @@ import com.gatar.recipedealer.llm.ClaudeClient;
 import com.gatar.recipedealer.llm.LlmException;
 import com.gatar.recipedealer.llm.LlmTestConfiguration;
 import com.gatar.recipedealer.llm.StubClaudeClient;
+import com.gatar.recipedealer.llm.TagPrompt;
 import com.gatar.recipedealer.processing.JobWorker;
 import com.jayway.jsonpath.JsonPath;
 
@@ -147,7 +148,7 @@ class AutoTagTest {
         String body = TestAuth.body(response);
         // 1000 × 0.10 + 20 × 0.50 = 110 µUSD
         assertThat(JsonPath.<List<String>>read(body, "$.runs[*].step")).containsExactly("heuristic", "tagging");
-        assertThat(JsonPath.<String>read(body, "$.runs[1].extractorVersion")).isEqualTo(HAIKU + "/t1");
+        assertThat(JsonPath.<String>read(body, "$.runs[1].extractorVersion")).isEqualTo(HAIKU + "/" + TagPrompt.VERSION);
         assertThat(JsonPath.<Boolean>read(body, "$.runs[1].applied")).isTrue();
         assertThat(JsonPath.<Integer>read(body, "$.totals.llmRuns")).isEqualTo(1);
         assertThat(JsonPath.<Double>read(body, "$.totals.costUsd")).isEqualTo(0.00011);

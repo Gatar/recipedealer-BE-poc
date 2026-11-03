@@ -20,7 +20,7 @@ import tools.jackson.databind.json.JsonMapper;
  */
 public final class TagPrompt {
 
-    public static final String VERSION = "t1";
+    public static final String VERSION = "t2";
 
     /** Byte-identical across requests (the catalog and the recipe go into the user message). */
     public static final String SYSTEM_PROMPT = """
@@ -34,10 +34,16 @@ public final class TagPrompt {
             2. A tag applies when the recipe clearly is what the tag says, judged from its title, ingredients, steps, \
             times and notes. The category title tells what the tags in it describe (for example the meal, the kind of \
             dish, the cuisine, the diet, the occasion).
-            3. When you are unsure, leave the tag out. Returning no tags is a valid answer.
-            4. Several tags of one category may apply (a dish can be both lunch and dinner); choose each one that \
-            clearly applies, never every tag of a category just to be safe.
-            5. A tag that says what a dish does not contain (vegetarian, vegan, gluten-free, lactose-free and the like) \
+            3. Fewer tags are better than more. Choose a tag only when a family member looking for that tag would \
+            clearly expect this recipe; when you are unsure, leave it out. Returning no tags is a valid answer.
+            4. Usually choose at most one tag per category, two when both are equally obvious (a soup that is a \
+            typical lunch and dinner). Never choose a tag just because it is not wrong.
+            5. Cuisine: the cuisine the dish comes from, never the country or language of the website or of the \
+            recipe's author.
+            6. Tags with the same title in different categories mean different things: read the category title \
+            (for example "no baking" in a dessert category is a kind of dessert, in an equipment category it is a way \
+            of preparing; a dish that is simply not baked does not get either).
+            7. A tag that says what a dish does not contain (vegetarian, vegan, gluten-free, lactose-free and the like) \
             applies only when no ingredient contradicts it.
             """;
 

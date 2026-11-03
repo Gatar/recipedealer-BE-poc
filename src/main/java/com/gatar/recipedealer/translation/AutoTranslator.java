@@ -31,10 +31,10 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The translation job of a capture: one Claude call per new recipe to translate (outside any transaction), then the
- * translation becomes a machine revision (head; the original stays in the history) and the recipe's tagging is
+ * The translation job of a capture: one Claude call per recipe to translate (outside any transaction), then the
+ * translation becomes a machine revision (head; the original stays in the history) and a new recipe's tagging is
  * requested, so tags are chosen from the translated text. A failed call never blocks the capture: the recipe stays in
- * its language and is still tagged.
+ * its language (a new one is still tagged).
  */
 @Service
 public class AutoTranslator {
@@ -99,7 +99,7 @@ public class AutoTranslator {
                 log.info("Translated recipe {} of capture {} to {}: {}{}", recipeId, captureId,
                         pending.get(i).targetLanguage(), outcome.status().name().toLowerCase(Locale.ROOT),
                         outcome.errorType() == null ? "" : " (" + outcome.errorType() + ")");
-                if (tags.tagsOf(recipeId).isEmpty()) {
+                if (pending.get(i).tagAfter() && tags.tagsOf(recipeId).isEmpty()) {
                     autoTags.request(recipeId, captureId);
                 }
             }
@@ -114,6 +114,11 @@ public class AutoTranslator {
         }
         if (head.get().origin() == Origin.USER) {
             return skipped("edited_by_user", head.get());
+        }
+        String language = head.get().content().path("language").asString("").toLowerCase(Locale.ROOT);
+        if (language.split("[-_]", 2)[0].equals(translation.targetLanguage())) {
+            // never again: a model can only spoil a text already in the target language
+            return skipped("already_in_target", head.get());
         }
         var request = new ClaudeClient.Request(properties.model(), properties.effort(), TranslatePrompt.SYSTEM_PROMPT,
                 TranslatePrompt.schema(), List.of(new ClaudeClient.Text(

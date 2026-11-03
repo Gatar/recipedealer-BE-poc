@@ -229,6 +229,80 @@ class AutoTranslationTest {
         assertThat(claude.requests).hasSize(2);
     }
 
+    /** NEW, translated and tagged; returns the recipe id. */
+    private UUID translatedRecipe(UUID captureId) {
+        claude.willAnswer(HAIKU, polish(POLISH_INGREDIENTS),
+                StubClaudeClient.response(HAIKU, "end_turn", "{\"tags\": []}", 1000, 0, 0, 20));
+        UUID recipeId = recipeId(resolve(captureId, "{\"action\":\"NEW\"}"));
+        worker.drain();
+        assertThat(JsonPath.<String>read(head(recipeId), "$.language")).isEqualTo("pl");
+        return recipeId;
+    }
+
+    private void force(UUID captureId) {
+        assertThat(mvc.post().uri("/v1/captures/{id}/llm-extraction", captureId)
+                .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token))).hasStatus(202);
+        worker.drain();
+    }
+
+    /** What a re-read of the capture gives: the English source again. */
+    private static ClaudeClient.Response englishReading() {
+        return StubClaudeClient.response(HAIKU, "end_turn", """
+                {"recipeFound": true, "title": "Apple pie", "language": "en", "servings": {"text": "8 servings", "count": 8},
+                 "times": {"prepMinutes": null, "cookMinutes": 45, "totalMinutes": null},
+                 "ingredientGroups": [{"name": null, "items": ["2 cups flour", "8 oz butter"]}],
+                 "stepGroups": [{"name": null, "items": ["Mix.", "Bake at 350°F for 45 minutes."]}], "notes": []}""",
+                1000, 0, 0, 200);
+    }
+
+    @Test
+    void aReReadOfATranslatedRecipeIsTranslatedAgainButNotTagged() {
+        UUID captureId = processed(englishCapture(), "pl");
+        UUID recipeId = translatedRecipe(captureId);
+        claude.willAnswer(HAIKU, englishReading(), StubClaudeClient.response(HAIKU, "end_turn", """
+                {"sourceLanguage": "en", "alreadyInTarget": false, "title": "Szarlotka po odczycie",
+                 "servingsText": "8 porcji",
+                 "ingredientGroups": [{"name": null, "items": ["2 szklanki (cups) mąki", "227 g (8 oz) masła"]}],
+                 "stepGroups": [{"name": null, "items": ["Wymieszać.", "Piec w 177°C (350°F) przez 45 minut."]}],
+                 "notes": []}""", 1500, 0, 0, 400));
+
+        force(captureId);
+
+        assertThat(status(captureId)).isEqualTo("done");
+        assertThat(JsonPath.<String>read(head(recipeId), "$.title")).isEqualTo("Szarlotka po odczycie");
+        assertThat(JsonPath.<String>read(head(recipeId), "$.language")).isEqualTo("pl");
+        // translation + tagging of the new recipe, then the re-read and its translation; no second tagging
+        assertThat(claude.requests).hasSize(4);
+        assertThat(jdbc.sql("SELECT count(*) FROM auto_translation WHERE recipe_id = :id AND status = 'succeeded'")
+                .param("id", recipeId).query(Long.class).single()).isEqualTo(2);
+    }
+
+    @Test
+    void aReReadAlreadyInTheTargetLanguageIsNeverTranslated() {
+        UUID captureId = processed(englishCapture(), "pl");
+        UUID recipeId = translatedRecipe(captureId);
+        claude.willAnswer(HAIKU, StubClaudeClient.recipe(HAIKU, "Szarlotka po polsku", 100, 0, 0, 100));
+
+        force(captureId);
+
+        assertThat(status(captureId)).isEqualTo("done");
+        assertThat(JsonPath.<String>read(head(recipeId), "$.title")).isEqualTo("Szarlotka po polsku");
+        assertThat(claude.requests).hasSize(3);
+    }
+
+    @Test
+    void aRecipeWithoutALanguageIsNeverTranslated() {
+        ObjectNode capture = englishCapture();
+        capture.withObject("recipe").remove("language");
+        UUID captureId = processed(capture, "pl");
+
+        String view = resolve(captureId, "{\"action\":\"NEW\",\"tags\":[\"" + meal + ":dessert\"]}");
+
+        assertThat(JsonPath.<String>read(view, "$.status")).isEqualTo("done");
+        worker.drain();
+        assertThat(claude.requests).isEmpty();
+    }
+
     @Test
     void aBadHeaderIsRejected() {
         assertThat(upload(englishCapture(), "polish!")).hasStatus(400);

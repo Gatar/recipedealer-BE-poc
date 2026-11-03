@@ -166,7 +166,8 @@ public class ResolutionService {
             outcome = revisions.createRecipe(content);
             tags.assignToNewRecipe(outcome.recipeId(), resolution.tags());
             // a translated recipe is tagged after its translation (AutoTranslator)
-            boolean translating = translations.request(outcome.recipeId(), captureId, candidate.content());
+            boolean translating = translations.request(outcome.recipeId(), captureId, candidate.content(),
+                    resolution.tags().isEmpty());
             if (!translating && resolution.tags().isEmpty()) {
                 autoTags.request(outcome.recipeId(), captureId);
             }
@@ -178,6 +179,9 @@ public class ResolutionService {
                 return false;
             }
             outcome = revisions.addRevision(target.get(), content, true);
+            if (outcome.headMoved()) {
+                translations.request(outcome.recipeId(), captureId, candidate.content(), false);
+            }
             messages.add((outcome.created() ? "Updated recipe \"" : "Recipe already up to date: \"")
                     + titleOf(outcome.recipeId()) + "\".");
         }
@@ -191,7 +195,10 @@ public class ResolutionService {
         recipes.liveTarget(recipeId).ifPresent(target -> {
             var content = new RevisionService.Content(candidate.content(), candidate.schemaVersion(), Origin.MACHINE,
                     runId, captureId, null, null, candidate.needsReview());
-            revisions.addRevision(target, content, false);
+            // a re-read of a capture that asked for a translation is translated again (unless in that language)
+            if (revisions.addRevision(target, content, false).headMoved()) {
+                translations.request(target, captureId, candidate.content(), false);
+            }
             attachKeys(captureId, candidate, target);
         });
     }

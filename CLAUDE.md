@@ -114,9 +114,12 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 
 ## Translation of new recipes (agreed 2026-11-03)
 - The app sends header `Translate-To: <device language>` on the upload when its setting is on; stored in
-  `capture.translate_to` on insert (the capture contract stays as it is). Every NEW decision (also on another device)
-  of such a capture requests a translation when the recipe's `language` differs (`AutoTranslationRepository.request`
-  in `ResolutionService.applyDecision`); updates, forced re-reads and existing recipes are never translated.
+  `capture.translate_to` on insert (the capture contract stays as it is). Every machine revision such a capture makes
+  the head (NEW, also decided on another device; UPDATE; re-read via `applyAutomatic`; user, 2026-11-03: a re-read
+  must not undo the translation) requests a translation (`AutoTranslationRepository.request`). Only when the content's
+  `language` is known and differs: never content already in the target language or without a language (user,
+  2026-11-03: a model can only spoil it); `AutoTranslator` checks the head's language again before calling.
+  Only a NEW recipe is tagged afterwards (`tag_after`).
 - The translation is a MACHINE revision (head; the original stays in the history; `run_id` = the head's run, as the
   schema requires one for machine revisions), skipped when the head is a USER revision or changed meanwhile.
 - `TranslatePrompt` (version `r1`): texts only (title, servings text, group names, items, notes); quantities as

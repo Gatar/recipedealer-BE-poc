@@ -115,14 +115,17 @@ leaves the recipe without tags, the capture still goes on (`done`, or `needs_dec
 user set on the recipe in the meantime are kept. Nothing is tagged without an API key or with an empty catalog.
 
 **Translation of new recipes.** A capture uploaded with the header `Translate-To` (see `PUT /v1/captures/{captureId}`)
-asks to translate a recipe it creates (any NEW decision) into that language, when the recipe's `language` differs.
+asks to translate what it puts into a recipe into that language: a recipe it creates (any NEW decision), and the new
+head of an UPDATE decision or of a re-read (`POST …/llm-extraction`). Only content whose `language` is known and
+differs is translated; content already in the target language (a translation included) or without a language never
+is.
 Claude Haiku translates the title, servings text, group names, ingredients, steps and notes; quantities stay as
 written, only units with a fixed factor (°F, oz, lb, fl oz, pint, quart, gallon, inch) are converted to metric with
 the original in parentheses ("177°C (350°F)"), cups and spoons are not. The translation becomes a new machine revision
-(head, `language` set to the target); the original stays in the history. Tagging runs after it, on the translated
-text. The capture stays `processing` until both finished; a failed or rejected translation (an answer that changes
-the number of groups or items) leaves the recipe in its language. Updates, forced re-reads and recipes the user
-edited in the meantime are never translated. Nothing is translated without an API key.
+(head, `language` set to the target); the original stays in the history. A new recipe is tagged after it, on the
+translated text. The capture stays `processing` until both finished; a failed or rejected translation (an answer that
+changes the number of groups or items) leaves the recipe in its language. A recipe whose head the user wrote is never
+translated. Nothing is translated without an API key.
 
 **Tag catalog** (`GET /v1/tags` and every catalog change):
 

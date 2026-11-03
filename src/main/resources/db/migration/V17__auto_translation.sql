@@ -2,14 +2,16 @@
 -- null = no translation. Set once on insert (captures stay immutable).
 ALTER TABLE capture ADD COLUMN translate_to text CHECK (translate_to ~ '^[a-z]{2,3}$');
 
--- Translation of a new recipe by an LLM (one row per recipe, once). pending: the capture waits in 'processing'.
--- skipped: no call made or its result not applied (already in the target language, edited by the user meanwhile,
--- recipe gone). revision_id: the machine revision holding the translation (the original stays in the history).
+-- Translation by an LLM of a machine revision a capture with translate_to made the head of a recipe (new recipe,
+-- UPDATE, re-read), at most one pending per recipe. pending: the capture waits in 'processing'. skipped: no call made
+-- or its result not applied (edited by the user meanwhile, recipe gone). revision_id: the machine revision holding the
+-- translation (the original stays in the history). tag_after: a new recipe, tagged once translated.
 CREATE TABLE auto_translation (
     id                          uuid PRIMARY KEY,
-    recipe_id                   uuid        NOT NULL UNIQUE REFERENCES recipe (id),
+    recipe_id                   uuid        NOT NULL REFERENCES recipe (id),
     capture_id                  uuid        NOT NULL REFERENCES capture (id),
     target_language             text        NOT NULL,
+    tag_after                   boolean     NOT NULL,
     source_language             text,
     status                      text        NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'succeeded', 'skipped', 'failed')),
@@ -29,3 +31,5 @@ CREATE TABLE auto_translation (
     finished_at                 timestamptz
 );
 CREATE INDEX auto_translation_pending_idx ON auto_translation (capture_id) WHERE status = 'pending';
+CREATE UNIQUE INDEX auto_translation_one_pending_idx ON auto_translation (recipe_id) WHERE status = 'pending';
+CREATE INDEX auto_translation_recipe_idx ON auto_translation (recipe_id);

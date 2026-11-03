@@ -19,16 +19,17 @@ import com.gatar.recipedealer.processing.Purpose;
 import tools.jackson.databind.JsonNode;
 
 /**
- * Translations of new recipes ({@code auto_translation}): requested when a NEW decision creates a recipe from a capture
- * uploaded with {@code Translate-To} whose language differs, done by {@link AutoTranslator} in a job of the capture.
- * A capture with a pending translation stays {@code processing}.
+ * Translations ({@code auto_translation}): requested when a capture uploaded with {@code Translate-To} makes a machine
+ * revision in another language the head of a recipe (a new recipe, an UPDATE decision, a re-read), done by
+ * {@link AutoTranslator} in a job of the capture. A capture with a pending translation stays {@code processing}.
  */
 @Component
 public class AutoTranslationRepository {
 
     public enum Status { PENDING, SUCCEEDED, SKIPPED, FAILED }
 
-    public record Pending(UUID id, UUID recipeId, String targetLanguage) {
+    /** @param tagAfter a new recipe: tag it once translated */
+    public record Pending(UUID id, UUID recipeId, String targetLanguage, boolean tagAfter) {
     }
 
     /**
@@ -52,29 +53,31 @@ public class AutoTranslationRepository {
     }
 
     /**
-     * Requests translation of a recipe the capture just created, when the capture asked for a language the recipe is
-     * not known to be in, and queues the capture's translation job. Runs in the transaction that holds the capture's
-     * state lock.
+     * Requests translation of the head the capture just made, when the capture asked for a language and the content
+     * is known to be in another one, and queues the capture's translation job. Content already in the target language
+     * (a translation included) or without a language is never translated: a model can only spoil it. Runs in the
+     * transaction that holds the capture's state lock.
      *
-     * @param recipe the new recipe's content
+     * @param recipe   the content that became the head
+     * @param tagAfter a new recipe to tag once translated
      * @return whether a translation was requested
      */
-    public boolean request(UUID recipeId, UUID captureId, JsonNode recipe) {
+    public boolean request(UUID recipeId, UUID captureId, JsonNode recipe, boolean tagAfter) {
         if (!properties.enabled() || !llm.enabled()) {
             return false;
         }
         String target = jdbc.sql("SELECT translate_to FROM capture WHERE id = :id").param("id", captureId)
                 .query(String.class).optional().orElse(null);
-        String language = recipe.path("language").asString("").toLowerCase(Locale.ROOT);
-        if (target == null || target.equals(language.split("[-_]", 2)[0])) {
+        String language = recipe.path("language").asString("").strip().toLowerCase(Locale.ROOT).split("[-_]", 2)[0];
+        if (target == null || language.isEmpty() || target.equals(language)) {
             return false;
         }
         int inserted = jdbc.sql("""
-                        INSERT INTO auto_translation (id, recipe_id, capture_id, target_language)
-                        VALUES (:id, :recipeId, :captureId, :target)
-                        ON CONFLICT (recipe_id) DO NOTHING""")
+                        INSERT INTO auto_translation (id, recipe_id, capture_id, target_language, tag_after)
+                        VALUES (:id, :recipeId, :captureId, :target, :tagAfter)
+                        ON CONFLICT (recipe_id) WHERE status = 'pending' DO NOTHING""")
                 .param("id", Ids.newId()).param("recipeId", recipeId).param("captureId", captureId)
-                .param("target", target)
+                .param("target", target).param("tagAfter", tagAfter)
                 .update();
         if (inserted > 0) {
             jobs.enqueueOnce(new ProcessingTask(captureId, AutoTranslator.STEP, null, Purpose.PIPELINE));
@@ -89,11 +92,11 @@ public class AutoTranslationRepository {
 
     public List<Pending> pending(UUID captureId) {
         return jdbc.sql("""
-                        SELECT id, recipe_id, target_language FROM auto_translation
+                        SELECT id, recipe_id, target_language, tag_after FROM auto_translation
                         WHERE capture_id = :id AND status = 'pending' ORDER BY id""")
                 .param("id", captureId)
                 .query((rs, n) -> new Pending(Jdbc.uuid(rs, "id"), Jdbc.uuid(rs, "recipe_id"),
-                        rs.getString("target_language")))
+                        rs.getString("target_language"), rs.getBoolean("tag_after")))
                 .list();
     }
 

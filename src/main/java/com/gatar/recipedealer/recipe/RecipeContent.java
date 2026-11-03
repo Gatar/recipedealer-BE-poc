@@ -31,6 +31,13 @@ public final class RecipeContent {
         return title == null || title.isNull() || title.asString().isBlank() ? null : title.asString().strip();
     }
 
+    /** {@code images[0]} as written (a URL or {@code blob:<sha256>}), or null. */
+    public static String firstImage(JsonNode recipe) {
+        JsonNode images = recipe.get("images");
+        return images == null || !images.isArray() || images.isEmpty() || !images.get(0).isString()
+                ? null : images.get(0).asString().strip();
+    }
+
     /** The main photo: {@code images[0]} if it is an http(s) URL. */
     public static String mainImage(JsonNode recipe) {
         JsonNode images = recipe.get("images");

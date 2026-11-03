@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.gatar.recipedealer.auth.DevicePrincipal;
 import com.gatar.recipedealer.capture.CaptureSchemaValidator;
 import com.gatar.recipedealer.lock.LockService;
+import com.gatar.recipedealer.photo.PhotoService;
 import com.gatar.recipedealer.recipe.RecipeRepository.Origin;
 import com.gatar.recipedealer.web.ApiException;
 import com.gatar.recipedealer.web.ETags;
@@ -25,11 +26,13 @@ public class RecipeEditService {
     private final LockService locks;
     private final RecipeRepository recipes;
     private final RevisionService revisions;
+    private final PhotoService photos;
     private final JdbcClient jdbc;
 
     public RecipeEditService(CaptureSchemaValidator validator, LockService locks, RecipeRepository recipes,
-                             RevisionService revisions, JdbcClient jdbc) {
+                             RevisionService revisions, PhotoService photos, JdbcClient jdbc) {
         this.validator = validator;
+        this.photos = photos;
         this.locks = locks;
         this.recipes = recipes;
         this.revisions = revisions;
@@ -43,6 +46,7 @@ public class RecipeEditService {
             throw ApiException.badRequest("body must be a recipe object");
         }
         validator.validateRecipe(recipe);
+        photos.requireKnown(recipe);
         var head = recipes.lockHead(recipeId).orElseThrow(() -> new NotFoundException("recipe " + recipeId + " not found"));
         if (head.deleted() || head.mergedInto() != null) {
             throw new ApiException(HttpStatus.GONE, "recipe_gone", "recipe " + recipeId + " was deleted or merged");

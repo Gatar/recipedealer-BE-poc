@@ -1023,6 +1023,34 @@
       "description": "",
       "item": [
         {
+          "name": "Upload photo",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/blobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "blobs"
+              ]
+            },
+            "description": "Recipe photo from the phone (JPEG/PNG); stored as JPEG of at most 1600 px. Use ref as recipe.images[0] in Save edit."
+          }
+        },
+        {
           "name": "Blob",
           "request": {
             "method": "GET",

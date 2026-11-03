@@ -121,7 +121,8 @@ public class RecipeRepository {
 
     /**
      * Points the head to a revision and refreshes the copied search/display columns. The source summary changes only
-     * when the revision comes from a capture (a user edit keeps it). The thumbnail: the server copy of the head's
+     * when the revision comes from a capture (a user edit keeps it). The thumbnail: a photo the user uploaded as the
+     * head's main photo ({@code images[0] = "blob:<sha256>"}, {@code user_photo}), else the server copy of the head's
      * main photo ({@code web_image}), else the newest capture photo; a photo downloaded later is set by
      * {@link #setWebImageThumbnail}, one found in a PDF later by {@link #refreshThumbnails}.
      */
@@ -134,6 +135,7 @@ public class RecipeRepository {
                                                    lower(c.source_type))
                                    FROM capture c WHERE c.id = :captureId) END,
                                thumbnail_blob = coalesce(
+                                   (SELECT u.blob_sha256 FROM user_photo u WHERE 'blob:' || u.blob_sha256 = CAST(:mainImage AS text)),
                                    (SELECT w.blob_sha256 FROM web_image w WHERE w.url = CAST(:imageUrl AS text)),
                                    %s),
                                updated_at = now()
@@ -144,6 +146,7 @@ public class RecipeRepository {
                 .param("ingredients", RecipeContent.ingredientsText(content))
                 .param("captureId", captureId)
                 .param("imageUrl", RecipeContent.mainImage(content))
+                .param("mainImage", RecipeContent.firstImage(content))
                 .update();
     }
 
@@ -167,6 +170,9 @@ public class RecipeRepository {
         return jdbc.sql("""
                         WITH target AS (
                             SELECT r.id, coalesce(
+                                       (SELECT u.blob_sha256 FROM recipe_revision h JOIN user_photo u
+                                            ON 'blob:' || u.blob_sha256 = trim(h.content->'images'->>0)
+                                        WHERE h.id = r.head_revision_id),
                                        (SELECT w.blob_sha256 FROM recipe_revision h JOIN web_image w
                                             ON w.url = trim(h.content->'images'->>0)
                                         WHERE h.id = r.head_revision_id),

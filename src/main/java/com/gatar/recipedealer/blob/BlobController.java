@@ -47,7 +47,8 @@ public class BlobController {
                                coalesce((SELECT a.media_type FROM capture_attachment a WHERE a.blob_sha256 = b.sha256 LIMIT 1),
                                         (SELECT w.media_type FROM web_image w WHERE w.blob_sha256 = b.sha256 LIMIT 1),
                                         (SELECT 'image/jpeg' FROM pdf_image p WHERE p.blob_sha256 = b.sha256 LIMIT 1),
-                                        (SELECT 'image/jpeg' FROM dish_photo d WHERE d.blob_sha256 = b.sha256 LIMIT 1)) AS media_type,
+                                        (SELECT 'image/jpeg' FROM dish_photo d WHERE d.blob_sha256 = b.sha256 LIMIT 1),
+                                        (SELECT 'image/jpeg' FROM user_photo u WHERE u.blob_sha256 = b.sha256)) AS media_type,
                                EXISTS (SELECT 1 FROM capture c WHERE c.body_sha256 = b.sha256) AS capture_body
                         FROM blob b WHERE b.sha256 = :sha256""")
                 .param("sha256", sha256)

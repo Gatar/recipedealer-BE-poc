@@ -61,6 +61,7 @@ validated against it.
 
 `thumbnailBlob` is the server's copy of the recipe's photo:
 
+- a photo uploaded from the phone (`POST /v1/blobs`) that `recipe.images[0]` names as `blob:<sha256>`: that blob;
 - the photo `recipe.images[0]` (an http(s) URL), downloaded by the server in the background within about a minute
   after it becomes the head's photo; until then, or if the download fails, the next option applies;
 - else the newest photo of a capture behind the recipe:
@@ -426,6 +427,7 @@ Success:
 Errors:
 
 - **400** `invalid_recipe`: schema errors in `details`.
+- **400** `unknown_photo`: `images` names a `blob:<sha256>` that is not a photo uploaded with `POST /v1/blobs`.
 - **404**.
 - **409** `lock_required`: no `Lock-Id`.
 - **409** `lock_expired`: the lease is missing or expired.
@@ -533,9 +535,22 @@ Body `{"tags": ["meal:dinner", …]}` replaces the recipe's tags.
 
 ## Blobs and health
 
+### POST /v1/blobs
+
+Uploads a recipe photo from the phone (gallery or camera). Body: `multipart/form-data` with part `image` (JPEG or
+PNG; at most 25 MiB). The server re-encodes it as JPEG of at most 1600 px on the longer edge, whatever was sent (EXIF
+orientation is not applied: the app sends the photo upright). The recipe shows it once an edit
+(`POST /v1/recipes/{recipeId}/revisions`) sets `images[0]` to `ref`; it then is the recipe's `thumbnailBlob`.
+
+- **201** `{"blob": "<sha256>", "ref": "blob:<sha256>", "width": 1600, "height": 1200, "sizeBytes": 245678}`.
+- **400** `invalid_image`: not a readable image. **400** `invalid_request`: no part `image`.
+- **413** `payload_too_large`.
+
+A revision whose `images` contain a `blob:` entry that is not an uploaded photo answers **400** `unknown_photo`.
+
 ### GET /v1/blobs/{sha256}
 
-A capture body or attachment by its SHA-256 (e.g. `thumbnailBlob`).
+A capture body or attachment, or an uploaded photo, by its SHA-256 (e.g. `thumbnailBlob`).
 
 - **200** the content, with the attachment's media type (`application/json` for a capture body) and
   `Cache-Control: private, max-age=31536000, immutable`.

@@ -102,6 +102,7 @@ public class CaptureDeletionService {
                             AND NOT EXISTS (SELECT 1 FROM pdf_image WHERE blob_sha256 = b.sha256)
                             AND NOT EXISTS (SELECT 1 FROM dish_photo WHERE blob_sha256 = b.sha256)
                             AND NOT EXISTS (SELECT 1 FROM web_image WHERE blob_sha256 = b.sha256)
+                            AND NOT EXISTS (SELECT 1 FROM user_photo WHERE blob_sha256 = b.sha256)
                             AND NOT EXISTS (SELECT 1 FROM recipe WHERE thumbnail_blob = b.sha256)""")
                 .param("sha256", sha256).update() == 1).toList();
     }

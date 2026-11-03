@@ -112,6 +112,14 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   context (`IntegrationTest` properties); `AutoTagTest` turns it on with `@TestPropertySource`.
 - Usage per tagging on the row; `extraction-stats` lists it as a run with step `tagging`.
 
+## Recipe photos from the phone (agreed 2026-10-24 option a, built 2026-11-03)
+- `POST /v1/blobs` (part `image`, `PhotoService`): whatever is sent is re-encoded as JPEG ≤ 1600 px on the longer edge
+  (user, 2026-11-03: camera photos of several MB must not fill the storage); huge images are decoded subsampled.
+  Row in `user_photo`. EXIF orientation is not applied (the app sends the photo upright).
+- The recipe references it in its content: `images[0] = "blob:<sha256>"`, saved as a normal USER revision (history,
+  edit lock). Not a `data:` URI (rejected: bloats every sync). A revision naming an unknown `blob:` is 400
+  `unknown_photo`. Thumbnail order: user photo, then `web_image`, then capture photo (`RecipeRepository`).
+
 ## Translation of new recipes (agreed 2026-11-03)
 - The app sends header `Translate-To: <device language>` on the upload when its setting is on; stored in
   `capture.translate_to` on insert (the capture contract stays as it is). Every machine revision such a capture makes

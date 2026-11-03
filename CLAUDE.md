@@ -101,7 +101,9 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   after `t1` over-tagged on production: 11 tags on guacamole, "American" for an American website): fewer tags,
   usually one per category, cuisine of the dish not of the site, same-titled tags read with their category. Input: the head
   content as text (title, servings, times, ingredients, steps, notes), no photos. Model / effort:
-  `recipedealer.tagging` (Haiku, `low`).
+  `recipedealer.tagging` (Haiku, `high`; user, 2026-11-03). Compared on 5 web recipes with `t2`: `low` $0.00038 /
+  1.9 s per recipe with 4 wrong tags (a cheesecake tagged soup and no-bake), `medium` $0.00051 / 3.2 s and `high`
+  $0.00057 / 3.6 s without wrong tags (`high` adds obvious meal tags `medium` sometimes skips).
 - Before `done`: a pending tagging keeps the capture `processing` (`ResolutionService.updateState`); the tagging job
   (`process_capture` job with step `tagging`, so `hasActive` counts it; `JobWorker` dispatches to `AutoTagger`) calls
   the model outside a transaction, assigns the tags only if the recipe is live and still untagged, then

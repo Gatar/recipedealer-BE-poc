@@ -114,6 +114,16 @@ decisions are never tagged automatically. Only catalog tags are used; the model 
 leaves the recipe without tags, the capture still goes on (`done`, or `needs_decision` with candidates left). Tags the
 user set on the recipe in the meantime are kept. Nothing is tagged without an API key or with an empty catalog.
 
+**Translation of new recipes.** A capture uploaded with the header `Translate-To` (see `PUT /v1/captures/{captureId}`)
+asks to translate a recipe it creates (any NEW decision) into that language, when the recipe's `language` differs.
+Claude Haiku translates the title, servings text, group names, ingredients, steps and notes; quantities stay as
+written, only units with a fixed factor (°F, oz, lb, fl oz, pint, quart, gallon, inch) are converted to metric with
+the original in parentheses ("177°C (350°F)"), cups and spoons are not. The translation becomes a new machine revision
+(head, `language` set to the target); the original stays in the history. Tagging runs after it, on the translated
+text. The capture stays `processing` until both finished; a failed or rejected translation (an answer that changes
+the number of groups or items) leaves the recipe in its language. Updates, forced re-reads and recipes the user
+edited in the meantime are never translated. Nothing is translated without an API key.
+
 **Tag catalog** (`GET /v1/tags` and every catalog change):
 
 ```json
@@ -222,10 +232,13 @@ Uploads a capture; `captureId` is generated on the phone and must equal `capture
 - Body: `multipart/form-data` with
   - part `capture`: the capture JSON (`capture-v1.json`);
   - one part per attachment, named like that attachment's `attachments[].name`.
+- Optional header `Translate-To`: ISO 639 code (`pl`; `pl-PL` and `PL` mean `pl`) a new recipe from this capture is
+  translated into ("Translation of new recipes"). Stored with the capture on the first upload only.
 - **201** CaptureView: stored now, processing starts.
-- **200** CaptureView: already stored; the stored capture wins and the new body is ignored.
+- **200** CaptureView: already stored; the stored capture wins and the new body (and header) is ignored.
 - **400** `invalid_capture`: schema errors, a missing or duplicate part, or a URL/body `captureId` mismatch.
   `details` lists every problem. The phone shows them and does not retry.
+- **400** `invalid_request`: `Translate-To` is not a language code.
 - **413** `payload_too_large`.
 
 ### GET /v1/captures/{captureId}
@@ -355,7 +368,7 @@ head is a proposal: a machine update the user has not accepted. **200** · **404
 
 Extraction usage of the recipe ("Statystyki dla nerdów"): every processing run of the captures behind the recipe
 (the captures of its revisions and decisions), including rejected cascade steps, forced runs and admin comparisons,
-and the tagging of the new recipe (step `tagging`). Heuristic runs are listed with zero usage. Totals are computed
+and the translation and tagging of the new recipe (steps `translation`, `tagging`). Heuristic runs are listed with zero usage. Totals are computed
 from the runs on every request.
 
 ```json
@@ -366,8 +379,8 @@ from the runs on every request.
   "models": [{"model": "claude-haiku-5-5", "runs": 1, "inputTokens": 100, "cacheCreationInputTokens": 0,
               "cacheReadInputTokens": 0, "outputTokens": 50, "costUsd": 0.000035}],
   "runs": [{"runId": "…", "captureId": "…", "startedAt": "…", "finishedAt": "…",
-            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p5 | claude-haiku-5-5/t2",
-            "step": "heuristic | haiku | sonnet | tagging", "purpose": "pipeline | forced | comparison",
+            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p5 | claude-haiku-5-5/t2 | claude-haiku-5-5/r1",
+            "step": "heuristic | haiku | sonnet | translation | tagging", "purpose": "pipeline | forced | comparison",
             "model": "claude-haiku-5-5 | null",
             "status": "succeeded | rejected | awaiting_extraction | failed | running | skipped",
             "applied": false, "validationErrors": ["no_steps"], "errorType": "overloaded_error | null",
@@ -383,6 +396,9 @@ from the runs on every request.
 - Step `tagging`: `applied` = tags were assigned; `status` `skipped` = no call was made or its tags were not assigned
   (`errorType` `recipe_tagged_or_gone`: the user tagged the recipe first, `empty_catalog`, `recipe_gone`); `failed` =
   the call or its answer failed (`errorType`, e.g. `overloaded_error`, `invalid_output`, `refusal:<category>`).
+- Step `translation`: `applied` = the translation became a revision; `skipped` (`errorType` `already_in_target`: the
+  model found the recipe already in the target language, `edited_by_user`, `recipe_changed`, `recipe_gone`); `failed`
+  as for tagging (`invalid_output` also for an answer that changed the structure).
 - `costUsd`: computed with the prices configured when the run finished; `null` in a run for a model without a price
   (counted as 0 in sums). `latencyMs` is `null` for heuristic runs.
 

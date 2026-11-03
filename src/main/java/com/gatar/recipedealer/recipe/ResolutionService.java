@@ -21,6 +21,7 @@ import com.gatar.recipedealer.recipe.ResolutionRepository.Action;
 import com.gatar.recipedealer.recipe.ResolutionRepository.Resolution;
 import com.gatar.recipedealer.tag.AutoTagRepository;
 import com.gatar.recipedealer.tag.TagService;
+import com.gatar.recipedealer.translation.AutoTranslationRepository;
 import com.gatar.recipedealer.web.ApiException;
 import com.gatar.recipedealer.web.NotFoundException;
 
@@ -41,17 +42,19 @@ public class ResolutionService {
     private final RevisionService revisions;
     private final TagService tags;
     private final AutoTagRepository autoTags;
+    private final AutoTranslationRepository translations;
     private final CandidateService matches;
 
     public ResolutionService(ProcessingRepository processing, ResolutionRepository resolutions, RecipeRepository recipes,
                              RevisionService revisions, TagService tags, AutoTagRepository autoTags,
-                             CandidateService matches) {
+                             AutoTranslationRepository translations, CandidateService matches) {
         this.processing = processing;
         this.resolutions = resolutions;
         this.recipes = recipes;
         this.revisions = revisions;
         this.tags = tags;
         this.autoTags = autoTags;
+        this.translations = translations;
         this.matches = matches;
     }
 
@@ -162,7 +165,9 @@ public class ResolutionService {
         if (resolution.action() == Action.NEW) {
             outcome = revisions.createRecipe(content);
             tags.assignToNewRecipe(outcome.recipeId(), resolution.tags());
-            if (resolution.tags().isEmpty()) {
+            // a translated recipe is tagged after its translation (AutoTranslator)
+            boolean translating = translations.request(outcome.recipeId(), captureId, candidate.content());
+            if (!translating && resolution.tags().isEmpty()) {
                 autoTags.request(outcome.recipeId(), captureId);
             }
             messages.add("Created recipe \"" + titleOf(outcome.recipeId()) + "\".");
@@ -210,8 +215,8 @@ public class ResolutionService {
                 .collect(Collectors.toMap(Resolution::index, Function.identity()));
         boolean allApplied = candidates.stream()
                 .allMatch(c -> byIndex.containsKey(c.index()) && byIndex.get(c.index()).applied());
-        if (allApplied && autoTags.hasPending(captureId)) {
-            // done once the new recipes are tagged (AutoTagger), so the app's sync after done gets their tags
+        if (allApplied && (translations.hasPending(captureId) || autoTags.hasPending(captureId))) {
+            // done once the new recipes are translated and tagged, so the app's sync after done gets the result
             processing.setState(captureId, CaptureStatus.PROCESSING, null, null);
         } else if (allApplied) {
             String message = candidates.stream().map(c -> byIndex.get(c.index()).message())

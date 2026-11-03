@@ -112,6 +112,21 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   context (`IntegrationTest` properties); `AutoTagTest` turns it on with `@TestPropertySource`.
 - Usage per tagging on the row; `extraction-stats` lists it as a run with step `tagging`.
 
+## Translation of new recipes (agreed 2026-11-03)
+- The app sends header `Translate-To: <device language>` on the upload when its setting is on; stored in
+  `capture.translate_to` on insert (the capture contract stays as it is). Every NEW decision (also on another device)
+  of such a capture requests a translation when the recipe's `language` differs (`AutoTranslationRepository.request`
+  in `ResolutionService.applyDecision`); updates, forced re-reads and existing recipes are never translated.
+- The translation is a MACHINE revision (head; the original stays in the history; `run_id` = the head's run, as the
+  schema requires one for machine revisions), skipped when the head is a USER revision or changed meanwhile.
+- `TranslatePrompt` (version `r1`): texts only (title, servings text, group names, items, notes); quantities as
+  written, only fixed-factor units (°F, oz, lb, fl oz, pint, quart, gallon, inch) converted to metric with the original
+  in parentheses; cups / spoons never (user, 2026-11-03: no guessing, only arithmetic). An answer with a different
+  number of groups or items is rejected (`invalid_output`). Haiku, effort `high` (`recipedealer.translation`).
+- Order: translation job (step `translation`), then the tagging request (tags from the translated text); a pending
+  translation keeps the capture `processing` like a pending tagging. A failed translation still tags.
+- Usage per translation in `auto_translation`, `extraction-stats` step `translation`.
+
 ## LLM extraction (agreed 2026-10-28; task prompt `docs/add-llm-prompt.txt`)
 - Cascade heuristic (`PassthroughExtractor`) → Claude Haiku → Claude Sonnet (`ExtractionCascade`, steps
   `heuristic | haiku | sonnet`); the next step runs only when the previous one fails validation

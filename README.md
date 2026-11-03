@@ -209,6 +209,10 @@ A new recipe the user did not tag gets tags from the catalog chosen by Claude Ha
 `application.yaml`; `enabled: false` turns it off). Usage per tagging is stored in `auto_tagging` and shown in the
 same stats as step `tagging`.
 
+A new recipe from a capture uploaded with `Translate-To` (the app's setting "Tłumacz nowe przepisy na język
+urządzenia") is translated by Claude Haiku before it is tagged (`recipedealer.translation`; usage in
+`auto_translation`, step `translation` in the stats).
+
 Admin tools (see `docs/api.md`):
 
 ```bash

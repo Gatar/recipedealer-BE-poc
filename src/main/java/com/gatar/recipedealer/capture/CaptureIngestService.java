@@ -55,7 +55,9 @@ public class CaptureIngestService {
     }
 
     /** @return true if the capture was created, false if it already existed (the stored one wins) */
-    public boolean ingest(UUID captureId, Collection<Part> parts, DevicePrincipal device) throws IOException {
+    /** @param translateTo ISO 639 code a new recipe from the capture is translated into, or null */
+    public boolean ingest(UUID captureId, Collection<Part> parts, DevicePrincipal device, String translateTo)
+            throws IOException {
         Map<String, Part> byName = new LinkedHashMap<>();
         for (Part part : parts) {
             if (byName.putIfAbsent(part.getName(), part) != null) {
@@ -97,7 +99,7 @@ public class CaptureIngestService {
         JsonNode source = json.get("source");
         var capture = new NewCapture(captureId, OffsetDateTime.parse(json.get("capturedAt").asString()),
                 device.userId(), device.deviceId(), json.get("schemaVersion").asInt(), bodyBlob, body,
-                source.get("type").asString(), textOrNull(source.get("url")), attachments);
+                source.get("type").asString(), textOrNull(source.get("url")), attachments, translateTo);
         Boolean created = tx.execute(status -> {
             boolean inserted = captures.insert(capture);
             if (inserted) {

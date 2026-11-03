@@ -13,10 +13,12 @@ import org.springframework.context.annotation.Import;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 // The worker is disabled (bean conditions are evaluated before DynamicPropertyRegistrar runs, so it must be set here);
-// tests run jobs explicitly with JobWorker.drain(). Tagging of new recipes is off (the Claude stub fails on unexpected
-// calls); AutoTagTest turns it on with @TestPropertySource, which wins over these properties.
+// tests run jobs explicitly with JobWorker.drain(). Tagging and translation of new recipes are off (the Claude stub
+// fails on unexpected calls); AutoTagTest and AutoTranslationTest turn them on with @TestPropertySource, which wins
+// over these properties.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"recipedealer.worker.enabled=false", "recipedealer.tagging.enabled=false"})
+        properties = {"recipedealer.worker.enabled=false", "recipedealer.tagging.enabled=false",
+                "recipedealer.translation.enabled=false"})
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 public @interface IntegrationTest {

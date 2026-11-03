@@ -166,7 +166,14 @@
           "name": "Upload capture",
           "request": {
             "method": "PUT",
-            "header": [],
+            "header": [
+              {
+                "key": "Translate-To",
+                "value": "pl",
+                "description": "Optional: translate a new recipe from this capture into this language",
+                "disabled": true
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/v1/captures/{{captureId}}",
               "host": [

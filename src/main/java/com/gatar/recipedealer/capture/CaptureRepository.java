@@ -26,7 +26,7 @@ public class CaptureRepository {
 
     public record NewCapture(UUID id, OffsetDateTime capturedAt, UUID userId, UUID deviceId, int schemaVersion,
                              BlobRef body, byte[] bodyJson, String sourceType, String sourceUrl,
-                             List<NewAttachment> attachments) {
+                             List<NewAttachment> attachments, String translateTo) {
     }
 
     public Optional<String> findBodySha256(UUID captureId) {
@@ -39,9 +39,9 @@ public class CaptureRepository {
         insertBlob(capture.body());
         int inserted = jdbc.sql("""
                         INSERT INTO capture (id, captured_at, user_id, device_id, schema_version, body_sha256, body,
-                                             source_type, source_url)
+                                             source_type, source_url, translate_to)
                         VALUES (:id, :capturedAt, :userId, :deviceId, :schemaVersion, :bodySha256, CAST(:body AS jsonb),
-                                :sourceType, :sourceUrl)
+                                :sourceType, :sourceUrl, :translateTo)
                         ON CONFLICT (id) DO NOTHING""")
                 .param("id", capture.id())
                 .param("capturedAt", capture.capturedAt())
@@ -52,6 +52,7 @@ public class CaptureRepository {
                 .param("body", new String(capture.bodyJson(), StandardCharsets.UTF_8))
                 .param("sourceType", capture.sourceType())
                 .param("sourceUrl", capture.sourceUrl())
+                .param("translateTo", capture.translateTo())
                 .update();
         if (inserted == 0) {
             return false;

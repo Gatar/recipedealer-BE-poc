@@ -7,6 +7,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.gatar.recipedealer.capture.CaptureStatus;
 import com.gatar.recipedealer.tag.AutoTagger;
+import com.gatar.recipedealer.translation.AutoTranslator;
 
 /**
  * Runs queued jobs; failures are retried with backoff and end in {@code needs_attention}. A
@@ -22,14 +23,16 @@ public class JobWorker {
     private final JobQueue queue;
     private final ProcessingService processing;
     private final AutoTagger tagger;
+    private final AutoTranslator translator;
     private final ProcessingRepository repository;
     private final TransactionTemplate tx;
 
-    public JobWorker(JobQueue queue, ProcessingService processing, AutoTagger tagger, ProcessingRepository repository,
-                     TransactionTemplate tx) {
+    public JobWorker(JobQueue queue, ProcessingService processing, AutoTagger tagger, AutoTranslator translator,
+                     ProcessingRepository repository, TransactionTemplate tx) {
         this.queue = queue;
         this.processing = processing;
         this.tagger = tagger;
+        this.translator = translator;
         this.repository = repository;
         this.tx = tx;
     }
@@ -54,6 +57,8 @@ public class JobWorker {
         try {
             if (AutoTagger.STEP.equals(job.step())) {
                 tagger.run(job.captureId());
+            } else if (AutoTranslator.STEP.equals(job.step())) {
+                translator.run(job.captureId());
             } else {
                 processing.process(job.task());
             }

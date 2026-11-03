@@ -68,6 +68,11 @@ recipedealer:
     enabled: true
     model: claude-haiku-5-5
     effort: high
+  translation:
+    # A new recipe from a capture uploaded with Translate-To is translated by this model (needs the API key above).
+    enabled: true
+    model: claude-haiku-5-5
+    effort: high
   deadman:
     api-key:
       # e.g. a healthchecks.io check URL, pinged after each successful API key check; empty disables the check.

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -51,12 +53,28 @@ public class CaptureController {
     }
 
     /** Multipart: part {@code capture} (JSON) plus one part per attachment, named like {@code attachments[].name}. */
+    /** Header {@value}: translate a new recipe from this capture into that language (ISO 639 code, e.g. {@code pl}). */
+    public static final String TRANSLATE_TO = "Translate-To";
+
     @PutMapping(path = "/{captureId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<CaptureView> put(@PathVariable UUID captureId, HttpServletRequest request,
+                                           @RequestHeader(name = TRANSLATE_TO, required = false) String translateTo,
                                            @AuthenticationPrincipal DevicePrincipal device)
             throws IOException, ServletException {
-        boolean created = ingest.ingest(captureId, request.getParts(), device);
+        boolean created = ingest.ingest(captureId, request.getParts(), device, language(translateTo));
         return ResponseEntity.status(created ? HttpStatus.CREATED : HttpStatus.OK).body(queries.view(captureId));
+    }
+
+    /** {@code pl}, {@code PL} and {@code pl-PL} mean {@code pl}; blank means none. */
+    private static String language(String header) {
+        if (header == null || header.isBlank()) {
+            return null;
+        }
+        String language = header.strip().split("[-_]", 2)[0].toLowerCase(Locale.ROOT);
+        if (!language.matches("[a-z]{2,3}")) {
+            throw ApiException.badRequest(TRANSLATE_TO + " must be an ISO 639 language code: " + header);
+        }
+        return language;
     }
 
     @GetMapping("/{captureId}")

@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.gatar.recipedealer.common.Jdbc;
 import com.gatar.recipedealer.tag.AutoTagger;
+import com.gatar.recipedealer.translation.AutoTranslator;
 import com.gatar.recipedealer.web.NotFoundException;
 
 import tools.jackson.databind.node.ObjectNode;
@@ -83,6 +84,10 @@ public class ExtractionStatsService {
         runs.addAll(jdbc.sql("SELECT * FROM auto_tagging WHERE recipe_id = :recipeId AND status <> 'pending'")
                 .param("recipeId", recipeId)
                 .query((rs, n) -> tagging(rs))
+                .list());
+        runs.addAll(jdbc.sql("SELECT * FROM auto_translation WHERE recipe_id = :recipeId AND status <> 'pending'")
+                .param("recipeId", recipeId)
+                .query((rs, n) -> translation(rs))
                 .list());
         runs.sort(Comparator.comparing(RunStats::startedAt));
 
@@ -155,6 +160,19 @@ public class ExtractionStatsService {
                 Jdbc.instant(rs, "finished_at"), "claude",
                 model == null || promptVersion == null ? null : model + "/" + promptVersion, AutoTagger.STEP,
                 Purpose.PIPELINE.value(), model, status, "succeeded".equals(status) && !tags.isEmpty(), List.of(),
+                rs.getString("error_type"), rs.getString("stop_reason"), rs.getLong("input_tokens"),
+                rs.getLong("cache_creation_input_tokens"), rs.getLong("cache_read_input_tokens"),
+                rs.getLong("output_tokens"), rs.getObject("latency_ms", Long.class), rs.getBigDecimal("cost_usd"));
+    }
+
+    /** A translation of the recipe as a run of step {@code translation}; applied when it became a revision. */
+    private static RunStats translation(ResultSet rs) throws SQLException {
+        String model = rs.getString("model");
+        String promptVersion = rs.getString("prompt_version");
+        return new RunStats(Jdbc.uuid(rs, "id"), Jdbc.uuid(rs, "capture_id"), Jdbc.instant(rs, "created_at"),
+                Jdbc.instant(rs, "finished_at"), "claude",
+                model == null || promptVersion == null ? null : model + "/" + promptVersion, AutoTranslator.STEP,
+                Purpose.PIPELINE.value(), model, rs.getString("status"), rs.getObject("revision_id") != null, List.of(),
                 rs.getString("error_type"), rs.getString("stop_reason"), rs.getLong("input_tokens"),
                 rs.getLong("cache_creation_input_tokens"), rs.getLong("cache_read_input_tokens"),
                 rs.getLong("output_tokens"), rs.getObject("latency_ms", Long.class), rs.getBigDecimal("cost_usd"));

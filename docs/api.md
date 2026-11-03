@@ -121,7 +121,8 @@ differs is translated; content already in the target language (a translation inc
 is.
 Claude Haiku translates the title, servings text, group names, ingredients, steps and notes; quantities stay as
 written, only units with a fixed factor (°F, oz, lb, fl oz, pint, quart, gallon, inch) are converted to metric with
-the original in parentheses ("177°C (350°F)"), cups and spoons are not. The translation becomes a new machine revision
+the original in parentheses ("177°C (350°F)"), cups and spoons are not; a metric value the source already gives is
+kept alone ("350°F (175°C)" → "175°C"). The translation becomes a new machine revision
 (head, `language` set to the target); the original stays in the history. A new recipe is tagged after it, on the
 translated text. The capture stays `processing` until both finished; a failed or rejected translation (an answer that
 changes the number of groups or items) leaves the recipe in its language. A recipe whose head the user wrote is never
@@ -382,7 +383,7 @@ from the runs on every request.
   "models": [{"model": "claude-haiku-5-5", "runs": 1, "inputTokens": 100, "cacheCreationInputTokens": 0,
               "cacheReadInputTokens": 0, "outputTokens": 50, "costUsd": 0.000035}],
   "runs": [{"runId": "…", "captureId": "…", "startedAt": "…", "finishedAt": "…",
-            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p5 | claude-haiku-5-5/t2 | claude-haiku-5-5/r1",
+            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p5 | claude-haiku-5-5/t2 | claude-haiku-5-5/r2",
             "step": "heuristic | haiku | sonnet | translation | tagging", "purpose": "pipeline | forced | comparison",
             "model": "claude-haiku-5-5 | null",
             "status": "succeeded | rejected | awaiting_extraction | failed | running | skipped",

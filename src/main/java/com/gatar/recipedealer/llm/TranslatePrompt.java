@@ -21,7 +21,7 @@ import tools.jackson.databind.node.ObjectNode;
  */
 public final class TranslatePrompt {
 
-    public static final String VERSION = "r1";
+    public static final String VERSION = "r2";
 
     /** Byte-identical across requests (the target language and the recipe go into the user message). */
     public static final String SYSTEM_PROMPT = """
@@ -48,6 +48,9 @@ public final class TranslatePrompt {
                - inches to centimetres × 2.54.
                Round grams and millilitres to whole numbers (one decimal below 10). A range converts both ends. Never \
             convert a unit whose size is not fixed (rule 3), and never touch values that are already metric.
+               When the source already gives the metric value next to the other one, keep only the source's metric \
+            value and drop the other unit: "350°F (175°C)" → "175°C", "8 oz (225 g)" → "225 g"; do not compute your \
+            own.
             5. Titles: translate the name of the dish, but keep a name the target language uses unchanged (for \
             example "Guacamole", "Tiramisu", "Pad thai").
             6. sourceLanguage: the ISO 639-1 code of the recipe's language. When the recipe is already written in the \

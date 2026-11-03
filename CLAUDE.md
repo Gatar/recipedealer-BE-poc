@@ -122,9 +122,10 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   Only a NEW recipe is tagged afterwards (`tag_after`).
 - The translation is a MACHINE revision (head; the original stays in the history; `run_id` = the head's run, as the
   schema requires one for machine revisions), skipped when the head is a USER revision or changed meanwhile.
-- `TranslatePrompt` (version `r1`): texts only (title, servings text, group names, items, notes); quantities as
+- `TranslatePrompt` (version `r2`): texts only (title, servings text, group names, items, notes); quantities as
   written, only fixed-factor units (°F, oz, lb, fl oz, pint, quart, gallon, inch) converted to metric with the original
-  in parentheses; cups / spoons never (user, 2026-11-03: no guessing, only arithmetic). An answer with a different
+  in parentheses; cups / spoons never (user, 2026-11-03: no guessing, only arithmetic). `r2`: a metric value the source
+  already gives is kept alone (`r1` wrote "177°C (350°F; 175°C)" for "350°F (175°C)"); not tested on production. An answer with a different
   number of groups or items is rejected (`invalid_output`). Haiku, effort `high` (`recipedealer.translation`).
 - Order: translation job (step `translation`), then the tagging request (tags from the translated text); a pending
   translation keeps the capture `processing` like a pending tagging. A failed translation still tags.

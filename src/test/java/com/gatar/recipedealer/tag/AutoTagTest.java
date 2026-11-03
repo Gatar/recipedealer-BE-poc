@@ -48,6 +48,9 @@ class AutoTagTest {
     @Autowired
     StubClaudeClient claude;
 
+    @Autowired
+    AutoTagProperties properties;
+
     String token;
     /** The catalog is global: every test uses a category of its own. */
     String meal;
@@ -126,7 +129,7 @@ class AutoTagTest {
         assertThat(claude.requests).hasSize(1);
         ClaudeClient.Request request = claude.requests.getFirst();
         assertThat(request.model()).isEqualTo(HAIKU);
-        assertThat(request.effort()).isEqualTo("low");
+        assertThat(request.effort()).isEqualTo(properties.effort());
         String input = ((ClaudeClient.Text) request.parts().getFirst()).text();
         assertThat(input).contains(meal + ":dinner: Posiłek / Obiad").contains("Title: Szarlotka ");
         @SuppressWarnings("unchecked")

@@ -67,7 +67,7 @@ recipedealer:
     # A new recipe the user did not tag gets tags from the catalog, chosen by this model (needs the API key above).
     enabled: true
     model: claude-haiku-5-5
-    effort: low
+    effort: medium
   deadman:
     api-key:
       # e.g. a healthchecks.io check URL, pinged after each successful API key check; empty disables the check.

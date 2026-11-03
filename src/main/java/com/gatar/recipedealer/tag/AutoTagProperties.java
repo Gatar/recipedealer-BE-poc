@@ -13,5 +13,5 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record AutoTagProperties(
         @DefaultValue("true") boolean enabled,
         @DefaultValue("claude-haiku-5-5") String model,
-        @DefaultValue("low") String effort) {
+        @DefaultValue("medium") String effort) {
 }

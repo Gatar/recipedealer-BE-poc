@@ -205,6 +205,10 @@ when it finishes) are in `application.yaml` under `recipedealer.llm`. Every capt
 goes to Claude Haiku, and to Claude Sonnet if Haiku's result is incomplete too. Usage per run is stored on
 `processing_run` and shown per recipe by `GET /v1/recipes/{recipeId}/extraction-stats`.
 
+A new recipe the user did not tag gets tags from the catalog chosen by Claude Haiku (`recipedealer.tagging` in
+`application.yaml`; `enabled: false` turns it off). Usage per tagging is stored in `auto_tagging` and shown in the
+same stats as step `tagging`.
+
 Admin tools (see `docs/api.md`):
 
 ```bash

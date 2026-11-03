@@ -107,6 +107,13 @@ non-empty result is used and marked `needsReview`; when every result is empty, t
 `AWAITING_EXTRACTION`. LLM results always need review. Fields the user edited on the phone (provenance `user`) are
 never changed. Without an API key on the server the cascade ends after the heuristic.
 
+**Tagging of new recipes.** A recipe created by a NEW decision without tags (processing's own NEW, or the user's
+without `tags`) gets tags from the catalog, chosen by Claude Haiku from its content; existing recipes and UPDATE
+decisions are never tagged automatically. Only catalog tags are used; the model may choose none. The capture stays
+`processing` until the tagging finished (a few seconds), so a sync after `done` already has the tags; a failed call
+leaves the recipe without tags, the capture still goes on (`done`, or `needs_decision` with candidates left). Tags the
+user set on the recipe in the meantime are kept. Nothing is tagged without an API key or with an empty catalog.
+
 **Tag catalog** (`GET /v1/tags` and every catalog change):
 
 ```json
@@ -240,7 +247,8 @@ stored and applied when the candidate exists.
 Processing decides NEW by itself (in the name of the capture's device, without tags) for a candidate without a
 decision that matches no live recipe: no shared identity key (canonical URL, JSON-LD id), and nothing that
 `GET /v1/recipes/candidates` would list for its title and, with a single candidate, the capture's URL. A capture
-whose candidates are all decided goes to `done`; `needs_decision` means a real choice is left.
+whose candidates are all decided goes to `done`; `needs_decision` means a real choice is left. A NEW without `tags`
+answers `processing` while the new recipe is tagged (see "Tagging of new recipes"); poll until `done`.
 
 Body is one of:
 
@@ -346,8 +354,9 @@ head is a proposal: a machine update the user has not accepted. **200** · **404
 ### GET /v1/recipes/{recipeId}/extraction-stats
 
 Extraction usage of the recipe ("Statystyki dla nerdów"): every processing run of the captures behind the recipe
-(the captures of its revisions and decisions), including rejected cascade steps, forced runs and admin comparisons.
-Heuristic runs are listed with zero usage. Totals are computed from the runs on every request.
+(the captures of its revisions and decisions), including rejected cascade steps, forced runs and admin comparisons,
+and the tagging of the new recipe (step `tagging`). Heuristic runs are listed with zero usage. Totals are computed
+from the runs on every request.
 
 ```json
 {
@@ -357,9 +366,10 @@ Heuristic runs are listed with zero usage. Totals are computed from the runs on 
   "models": [{"model": "claude-haiku-5-5", "runs": 1, "inputTokens": 100, "cacheCreationInputTokens": 0,
               "cacheReadInputTokens": 0, "outputTokens": 50, "costUsd": 0.000035}],
   "runs": [{"runId": "…", "captureId": "…", "startedAt": "…", "finishedAt": "…",
-            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p5",
-            "step": "heuristic | haiku | sonnet", "purpose": "pipeline | forced | comparison",
-            "model": "claude-haiku-5-5 | null", "status": "succeeded | rejected | awaiting_extraction | failed | running",
+            "extractor": "passthrough | claude", "extractorVersion": "1 | claude-haiku-5-5/p5 | claude-haiku-5-5/t1",
+            "step": "heuristic | haiku | sonnet | tagging", "purpose": "pipeline | forced | comparison",
+            "model": "claude-haiku-5-5 | null",
+            "status": "succeeded | rejected | awaiting_extraction | failed | running | skipped",
             "applied": false, "validationErrors": ["no_steps"], "errorType": "overloaded_error | null",
             "stopReason": "end_turn | max_tokens | refusal | null", "inputTokens": 100,
             "cacheCreationInputTokens": 0, "cacheReadInputTokens": 0, "outputTokens": 50, "latencyMs": 2100,
@@ -370,6 +380,9 @@ Heuristic runs are listed with zero usage. Totals are computed from the runs on 
 - `runs`: oldest first. `applied`: the run's result became a revision of this recipe. `status` `rejected`: the run
   failed validation (`validationErrors`), the next step ran. `failed`: the call failed (`errorType`), e.g. a transient
   error that was retried.
+- Step `tagging`: `applied` = tags were assigned; `status` `skipped` = no call was made or its tags were not assigned
+  (`errorType` `recipe_tagged_or_gone`: the user tagged the recipe first, `empty_catalog`, `recipe_gone`); `failed` =
+  the call or its answer failed (`errorType`, e.g. `overloaded_error`, `invalid_output`, `refusal:<category>`).
 - `costUsd`: computed with the prices configured when the run finished; `null` in a run for a model without a price
   (counted as 0 in sums). `latencyMs` is `null` for heuristic runs.
 

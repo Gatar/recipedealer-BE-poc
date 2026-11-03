@@ -89,8 +89,24 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   a `title` (shown, e.g. "Posiłek" / "Śniadanie"). Catalog order = the user's order (`position`).
 - Assignments (`recipe_tag`) are not recipe content: no revision, no edit lock. Changing them, or renaming / moving /
   deleting a tag in use, bumps `recipe.updated_at` so the recipe comes again in the sync feed with its new `tags`.
-- Tags are assigned manually only (also with a NEW decision); no ingredient tags (ingredient search covers that).
+- Tags are assigned manually (also with a NEW decision), and by Haiku for new recipes the user did not tag (below);
+  no ingredient tags (ingredient search covers that).
 - Recipe merge does not exist yet; when it comes, the target gets the union of both recipes' tags.
+
+## Tagging of new recipes (agreed 2026-11-03)
+- Every NEW decision without tags (auto-NEW, the user's NEW without `tags`, manual captures) requests a tagging
+  (`AutoTagRepository.request` in `ResolutionService.applyDecision`, row in `auto_tagging`); a NEW with tags chosen by
+  the user, UPDATEs, forced re-reads of applied captures and existing recipes are never tagged automatically.
+- Only tags of the catalog (schema enum of the ids; `TagPrompt`, version `t1`); none is a valid answer. Input: the head
+  content as text (title, servings, times, ingredients, steps, notes), no photos. Model / effort:
+  `recipedealer.tagging` (Haiku, `low`).
+- Before `done`: a pending tagging keeps the capture `processing` (`ResolutionService.updateState`); the tagging job
+  (`process_capture` job with step `tagging`, so `hasActive` counts it; `JobWorker` dispatches to `AutoTagger`) calls
+  the model outside a transaction, assigns the tags only if the recipe is live and still untagged, then
+  `refreshState`. Any LLM failure only leaves the recipe untagged (no job retry).
+- Not requested without an API key or with an empty catalog, so captures never wait for nothing. Off in the shared test
+  context (`IntegrationTest` properties); `AutoTagTest` turns it on with `@TestPropertySource`.
+- Usage per tagging on the row; `extraction-stats` lists it as a run with step `tagging`.
 
 ## LLM extraction (agreed 2026-10-28; task prompt `docs/add-llm-prompt.txt`)
 - Cascade heuristic (`PassthroughExtractor`) → Claude Haiku → Claude Sonnet (`ExtractionCascade`, steps

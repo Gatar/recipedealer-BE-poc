@@ -61,7 +61,20 @@ public class JobQueue {
         return id;
     }
 
-    /** A processing job (not a comparison) for the capture is queued or running. */
+    /** Like {@link #enqueue(ProcessingTask)}, unless a job of the same step is already queued for the capture. */
+    public void enqueueOnce(ProcessingTask task) {
+        boolean queued = jdbc.sql("""
+                        SELECT EXISTS (SELECT 1 FROM job WHERE capture_id = :id AND step = :step AND status = 'queued')""")
+                .param("id", task.captureId())
+                .param("step", task.step())
+                .query(Boolean.class)
+                .single();
+        if (!queued) {
+            enqueue(task);
+        }
+    }
+
+    /** A processing job (not a comparison) for the capture is queued or running; tagging jobs count. */
     public boolean hasActive(UUID captureId) {
         return jdbc.sql("""
                         SELECT EXISTS (SELECT 1 FROM job WHERE capture_id = :id AND kind = :kind

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.gatar.recipedealer.capture.CaptureStatus;
+import com.gatar.recipedealer.tag.AutoTagger;
 
 /**
  * Runs queued jobs; failures are retried with backoff and end in {@code needs_attention}. A
@@ -20,12 +21,15 @@ public class JobWorker {
 
     private final JobQueue queue;
     private final ProcessingService processing;
+    private final AutoTagger tagger;
     private final ProcessingRepository repository;
     private final TransactionTemplate tx;
 
-    public JobWorker(JobQueue queue, ProcessingService processing, ProcessingRepository repository, TransactionTemplate tx) {
+    public JobWorker(JobQueue queue, ProcessingService processing, AutoTagger tagger, ProcessingRepository repository,
+                     TransactionTemplate tx) {
         this.queue = queue;
         this.processing = processing;
+        this.tagger = tagger;
         this.repository = repository;
         this.tx = tx;
     }
@@ -48,7 +52,11 @@ public class JobWorker {
         var job = claimed.get();
         boolean comparison = job.purpose() == Purpose.COMPARISON;
         try {
-            processing.process(job.task());
+            if (AutoTagger.STEP.equals(job.step())) {
+                tagger.run(job.captureId());
+            } else {
+                processing.process(job.task());
+            }
             queue.complete(job.id());
         } catch (NonRetryableProcessingException e) {
             queue.fail(job, e.reason() + ": " + e.getMessage(), true);

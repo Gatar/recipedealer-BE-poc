@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.gatar.recipedealer.common.Jdbc;
+import com.gatar.recipedealer.tag.AutoTagger;
 import com.gatar.recipedealer.web.NotFoundException;
 
 import tools.jackson.databind.node.ObjectNode;
@@ -65,7 +67,7 @@ public class ExtractionStatsService {
         if (!live) {
             throw new NotFoundException("recipe " + recipeId + " not found");
         }
-        List<RunStats> runs = jdbc.sql("""
+        List<RunStats> runs = new ArrayList<>(jdbc.sql("""
                         WITH captures AS (
                             SELECT capture_id FROM recipe_revision WHERE recipe_id = :recipeId AND capture_id IS NOT NULL
                             UNION
@@ -77,7 +79,12 @@ public class ExtractionStatsService {
                         ORDER BY r.started_at, r.id""")
                 .param("recipeId", recipeId)
                 .query((rs, n) -> run(rs))
-                .list();
+                .list());
+        runs.addAll(jdbc.sql("SELECT * FROM auto_tagging WHERE recipe_id = :recipeId AND status <> 'pending'")
+                .param("recipeId", recipeId)
+                .query((rs, n) -> tagging(rs))
+                .list());
+        runs.sort(Comparator.comparing(RunStats::startedAt));
 
         Map<String, ModelStats> models = new LinkedHashMap<>();
         for (RunStats run : runs) {
@@ -136,6 +143,21 @@ public class ExtractionStatsService {
                 rs.getString("stop_reason"), rs.getLong("input_tokens"), rs.getLong("cache_creation_input_tokens"),
                 rs.getLong("cache_read_input_tokens"), rs.getLong("output_tokens"),
                 rs.getObject("latency_ms", Long.class), rs.getBigDecimal("cost_usd"));
+    }
+
+    /** A tagging of the recipe as a run of step {@code tagging}; applied when it assigned tags. */
+    private static RunStats tagging(ResultSet rs) throws SQLException {
+        String model = rs.getString("model");
+        String promptVersion = rs.getString("prompt_version");
+        List<String> tags = strings(rs.getArray("tags"));
+        String status = rs.getString("status");
+        return new RunStats(Jdbc.uuid(rs, "id"), Jdbc.uuid(rs, "capture_id"), Jdbc.instant(rs, "created_at"),
+                Jdbc.instant(rs, "finished_at"), "claude",
+                model == null || promptVersion == null ? null : model + "/" + promptVersion, AutoTagger.STEP,
+                Purpose.PIPELINE.value(), model, status, "succeeded".equals(status) && !tags.isEmpty(), List.of(),
+                rs.getString("error_type"), rs.getString("stop_reason"), rs.getLong("input_tokens"),
+                rs.getLong("cache_creation_input_tokens"), rs.getLong("cache_read_input_tokens"),
+                rs.getLong("output_tokens"), rs.getObject("latency_ms", Long.class), rs.getBigDecimal("cost_usd"));
     }
 
     private static List<String> strings(Array array) throws SQLException {

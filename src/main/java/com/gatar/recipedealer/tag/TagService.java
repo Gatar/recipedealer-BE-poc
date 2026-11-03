@@ -252,6 +252,27 @@ public class TagService {
         insert(recipeId, ids);
     }
 
+    /**
+     * Tags chosen by {@link AutoTagger}, assigned only to a live recipe that has no tags yet (the user may have tagged
+     * it in the meantime); tags deleted in the meantime are skipped. Bumps the recipe in the sync feed.
+     *
+     * @return false if nothing was assigned for that reason
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean assignAutomatically(UUID recipeId, Collection<String> ids) {
+        jdbc.sql("SELECT count(*) FROM (SELECT pg_advisory_xact_lock_shared(:key)) l").param("key", CATALOG_LOCK)
+                .query(Long.class).single();
+        var head = recipes.lockHead(recipeId);
+        if (head.isEmpty() || head.get().deleted() || head.get().mergedInto() != null || !tagsOf(recipeId).isEmpty()) {
+            return false;
+        }
+        insert(recipeId, ids);
+        if (!tagsOf(recipeId).isEmpty()) {
+            jdbc.sql("UPDATE recipe SET updated_at = now() WHERE id = :id").param("id", recipeId).update();
+        }
+        return true;
+    }
+
     private void insert(UUID recipeId, Collection<String> ids) {
         for (String id : ids) {
             int colon = id.indexOf(':');

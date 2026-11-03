@@ -19,6 +19,7 @@ import com.gatar.recipedealer.processing.StoredCandidate;
 import com.gatar.recipedealer.recipe.RecipeRepository.Origin;
 import com.gatar.recipedealer.recipe.ResolutionRepository.Action;
 import com.gatar.recipedealer.recipe.ResolutionRepository.Resolution;
+import com.gatar.recipedealer.tag.AutoTagRepository;
 import com.gatar.recipedealer.tag.TagService;
 import com.gatar.recipedealer.web.ApiException;
 import com.gatar.recipedealer.web.NotFoundException;
@@ -39,15 +40,18 @@ public class ResolutionService {
     private final RecipeRepository recipes;
     private final RevisionService revisions;
     private final TagService tags;
+    private final AutoTagRepository autoTags;
     private final CandidateService matches;
 
     public ResolutionService(ProcessingRepository processing, ResolutionRepository resolutions, RecipeRepository recipes,
-                             RevisionService revisions, TagService tags, CandidateService matches) {
+                             RevisionService revisions, TagService tags, AutoTagRepository autoTags,
+                             CandidateService matches) {
         this.processing = processing;
         this.resolutions = resolutions;
         this.recipes = recipes;
         this.revisions = revisions;
         this.tags = tags;
+        this.autoTags = autoTags;
         this.matches = matches;
     }
 
@@ -140,6 +144,15 @@ public class ResolutionService {
         updateState(captureId, candidates, targetGone);
     }
 
+    /** After the capture's taggings finished: the state as the capture's current result gives it. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void refreshState(UUID captureId) {
+        processing.lockState(captureId);
+        processing.latestCompletedRun(captureId)
+                .filter(run -> run.status() == RunStatus.SUCCEEDED)
+                .ifPresent(run -> apply(captureId, run.id(), processing.candidates(run.id()), false));
+    }
+
     /** @return false if the UPDATE target disappeared and the user has to decide again */
     private boolean applyDecision(UUID captureId, UUID runId, StoredCandidate candidate, Resolution resolution) {
         var content = new RevisionService.Content(candidate.content(), candidate.schemaVersion(), Origin.MACHINE, runId,
@@ -149,6 +162,9 @@ public class ResolutionService {
         if (resolution.action() == Action.NEW) {
             outcome = revisions.createRecipe(content);
             tags.assignToNewRecipe(outcome.recipeId(), resolution.tags());
+            if (resolution.tags().isEmpty()) {
+                autoTags.request(outcome.recipeId(), captureId);
+            }
             messages.add("Created recipe \"" + titleOf(outcome.recipeId()) + "\".");
         } else {
             var target = recipes.liveTarget(resolution.targetRecipeId());
@@ -194,7 +210,10 @@ public class ResolutionService {
                 .collect(Collectors.toMap(Resolution::index, Function.identity()));
         boolean allApplied = candidates.stream()
                 .allMatch(c -> byIndex.containsKey(c.index()) && byIndex.get(c.index()).applied());
-        if (allApplied) {
+        if (allApplied && autoTags.hasPending(captureId)) {
+            // done once the new recipes are tagged (AutoTagger), so the app's sync after done gets their tags
+            processing.setState(captureId, CaptureStatus.PROCESSING, null, null);
+        } else if (allApplied) {
             String message = candidates.stream().map(c -> byIndex.get(c.index()).message())
                     .filter(java.util.Objects::nonNull).collect(Collectors.joining(" "));
             processing.setState(captureId, CaptureStatus.DONE, null, message.isEmpty() ? null : message);

@@ -95,7 +95,8 @@ Status 2026-10-27 (before the beta):
 - ~~Android: implement the API from `update-android-prompt.txt`~~: done.
 - ~~Auto-NEW without candidates (finding 2), server-side thumbnails for web captures (finding 3)~~: done
   2026-10-27 (see `CLAUDE.md`, "Before the beta").
-- Investigate the `heuristic` ingredients on kwestiasmaku.com (finding 4).
+- ~~Investigate the `heuristic` ingredients on kwestiasmaku.com (finding 4).~~ Done 2026-11-24: the site's microdata
+  really has no ingredients or steps; the app reads its Drupal fields with a site plugin (provenance `pluginHits`).
 - ~~Make a skipped or misconfigured deploy fail the pipeline (finding 5).~~ Done: missing deploy secrets fail the
   deploy job.
 - ~~Test a restore from a dump~~: done 2026-10-26 (`deploy/restore.sh`, nightly dump and API ZIP).

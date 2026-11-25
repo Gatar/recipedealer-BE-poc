@@ -1,0 +1,356 @@
+package com.gatar.recipedealer.household;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.UUID;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
+
+import com.gatar.recipedealer.IntegrationTest;
+import com.gatar.recipedealer.TestAuth;
+import com.gatar.recipedealer.TestCaptures;
+import com.gatar.recipedealer.auth.AccountService;
+import com.gatar.recipedealer.auth.DeviceTokenService;
+import com.gatar.recipedealer.auth.LoginRateLimiter;
+import com.gatar.recipedealer.auth.RegistrationProperties;
+import com.gatar.recipedealer.processing.JobWorker;
+import com.gatar.recipedealer.web.ApiException;
+import com.jayway.jsonpath.JsonPath;
+
+@IntegrationTest
+class HouseholdAccountsTest {
+
+    @Autowired
+    MockMvcTester mvc;
+
+    @Autowired
+    JdbcClient jdbc;
+
+    @Autowired
+    JobWorker worker;
+
+    @Autowired
+    AccountService accounts;
+
+    @Autowired
+    DeviceTokenService tokens;
+
+    @Autowired
+    LoginRateLimiter rateLimiter;
+
+    String sfx;
+    String ownerToken;
+    String householdId;
+
+    @BeforeEach
+    void setUp() {
+        rateLimiter.reset();
+        sfx = UUID.randomUUID().toString().substring(0, 8);
+        var created = post(null, "/v1/auth/households", """
+                {"householdName": "Dom %s", "userName": "Owner-%s", "password": "hasło", "deviceName": "Pixel"}"""
+                .formatted(sfx, sfx));
+        assertThat(created).hasStatus(201);
+        ownerToken = JsonPath.read(TestAuth.body(created), "$.token");
+        householdId = JsonPath.read(TestAuth.body(created), "$.householdId");
+    }
+
+    @Test
+    void aNewHouseholdHasItsOwnerAndTheDefaultRecipeLimit() {
+        assertThat(householdId).isNotEqualTo(Households.DEFAULT_ID.toString());
+        String me = TestAuth.body(get(ownerToken, "/v1/me"));
+        assertThat(JsonPath.<String>read(me, "$.role")).isEqualTo("owner");
+        assertThat(JsonPath.<Boolean>read(me, "$.hasPassword")).isTrue();
+        assertThat(JsonPath.<String>read(me, "$.deviceName")).isEqualTo("Pixel");
+        assertThat(JsonPath.<String>read(me, "$.household.name")).isEqualTo("Dom " + sfx);
+        assertThat(JsonPath.<Integer>read(me, "$.household.recipeLimit")).isEqualTo(40);
+        assertThat(JsonPath.<Integer>read(me, "$.household.recipeCount")).isZero();
+        assertThat(JsonPath.<Integer>read(me, "$.household.userCount")).isEqualTo(1);
+
+        var renamed = patch(ownerToken, "/v1/household", "{\"name\": \"Nowa nazwa " + sfx + "\"}");
+        assertThat(renamed).hasStatusOk();
+        assertThat(JsonPath.<String>read(TestAuth.body(renamed), "$.name")).isEqualTo("Nowa nazwa " + sfx);
+
+        // a taken user name, also of another household
+        assertThat(error(post(null, "/v1/auth/households", """
+                {"householdName": "Inny", "userName": "owner-%s", "password": "x", "deviceName": "Pixel"}"""
+                .formatted(sfx)))).isEqualTo("user_exists");
+    }
+
+    @Test
+    void theDefaultHouseholdHasNoRecipeLimit() {
+        String token = TestAuth.enroll(mvc, "Default-" + sfx, "phone");
+        assertThat(JsonPath.<Object>read(TestAuth.body(get(token, "/v1/me")), "$.household.recipeLimit")).isNull();
+        assertThat(JsonPath.<String>read(TestAuth.body(get(token, "/v1/me")), "$.household.householdId"))
+                .isEqualTo(Households.DEFAULT_ID.toString());
+    }
+
+    @Test
+    void anInvitationAddsOneMember() {
+        var invitation = post(ownerToken, "/v1/household/invitations", "");
+        assertThat(invitation).hasStatus(201);
+        String code = JsonPath.read(TestAuth.body(invitation), "$.code");
+        assertThat(code).matches("[A-Z2-9]{4}-[A-Z2-9]{4}");
+        assertThat(TestAuth.body(get(ownerToken, "/v1/household/invitations")))
+                .contains(JsonPath.<String>read(TestAuth.body(invitation), "$.invitationId")).doesNotContain(code);
+
+        // typed by hand: lower case, without the dash
+        var joined = join(code.toLowerCase().replace("-", ""), "Member-" + sfx);
+        assertThat(joined).hasStatus(201);
+        assertThat(JsonPath.<String>read(TestAuth.body(joined), "$.householdId")).isEqualTo(householdId);
+        String memberToken = JsonPath.read(TestAuth.body(joined), "$.token");
+        assertThat(JsonPath.<String>read(TestAuth.body(get(memberToken, "/v1/me")), "$.role")).isEqualTo("member");
+
+        assertThat(error(join(code, "Second-" + sfx))).isEqualTo("invalid_invitation_code");
+        assertThat(TestAuth.body(get(ownerToken, "/v1/household/invitations"))).isEqualTo("[]");
+
+        // only owners invite
+        assertThat(error(post(memberToken, "/v1/household/invitations", ""))).isEqualTo("owner_required");
+        assertThat(error(get(memberToken, "/v1/household/invitations"))).isEqualTo("owner_required");
+    }
+
+    @Test
+    void aRevokedInvitationNoLongerWorks() {
+        var invitation = TestAuth.body(post(ownerToken, "/v1/household/invitations", ""));
+        assertThat(delete(ownerToken, "/v1/household/invitations/" + JsonPath.read(invitation, "$.invitationId")))
+                .hasStatus(204);
+        assertThat(error(join(JsonPath.read(invitation, "$.code"), "Late-" + sfx))).isEqualTo("invalid_invitation_code");
+        assertThat(delete(ownerToken, "/v1/household/invitations/" + UUID.randomUUID())).hasStatus(404);
+    }
+
+    @Test
+    void ownersManageMembersAndTheLastOwnerStays() {
+        String memberToken = member("Member-" + sfx);
+        String members = TestAuth.body(get(ownerToken, "/v1/household/members"));
+        assertThat(JsonPath.<List<String>>read(members, "$[*].userName")).containsExactly("Owner-" + sfx, "Member-" + sfx);
+        assertThat(JsonPath.<List<Boolean>>read(members, "$[0].devices[*].current")).containsExactly(true);
+        String ownerId = JsonPath.read(members, "$[0].userId");
+        String memberId = JsonPath.read(members, "$[1].userId");
+
+        assertThat(error(patch(ownerToken, "/v1/household/members/" + ownerId, "{\"role\": \"member\"}")))
+                .isEqualTo("last_owner");
+        assertThat(error(patch(memberToken, "/v1/household/members/" + memberId, "{\"role\": \"owner\"}")))
+                .isEqualTo("owner_required");
+        assertThat(error(delete(ownerToken, "/v1/me"))).isEqualTo("last_owner");
+
+        assertThat(patch(ownerToken, "/v1/household/members/" + memberId, "{\"role\": \"owner\"}")).hasStatusOk();
+        assertThat(patch(ownerToken, "/v1/household/members/" + ownerId, "{\"role\": \"member\"}")).hasStatusOk();
+        // the former owner is a member now; the new owner removes it
+        assertThat(error(delete(ownerToken, "/v1/household/members/" + memberId))).isEqualTo("owner_required");
+        assertThat(delete(memberToken, "/v1/household/members/" + ownerId)).hasStatus(204);
+        assertThat(get(ownerToken, "/v1/me")).hasStatus(401);
+        assertThat(error(delete(memberToken, "/v1/household/members/" + memberId))).isEqualTo("invalid_request");
+    }
+
+    @Test
+    void membersRevokeOnlyTheirOwnDevices() {
+        String memberToken = member("Member-" + sfx);
+        String members = TestAuth.body(get(ownerToken, "/v1/household/members"));
+        String ownerDevice = JsonPath.read(members, "$[0].devices[0].deviceId");
+        String memberDevice = JsonPath.read(members, "$[1].devices[0].deviceId");
+
+        assertThat(error(delete(memberToken, "/v1/household/devices/" + ownerDevice))).isEqualTo("owner_required");
+        assertThat(delete(memberToken, "/v1/household/devices/" + memberDevice)).hasStatus(204);
+        assertThat(get(memberToken, "/v1/me")).hasStatus(401);
+        // the member logs in again; the owner revokes that device
+        String again = JsonPath.read(TestAuth.body(post(null, "/v1/auth/login", """
+                {"userName": "Member-%s", "password": "hasło", "deviceName": "Pixel"}""".formatted(sfx))), "$.token");
+        assertThat(get(again, "/v1/me")).hasStatusOk();
+        assertThat(delete(ownerToken, "/v1/household/devices/" + memberDevice)).hasStatus(204);
+        assertThat(get(again, "/v1/me")).hasStatus(401);
+    }
+
+    @Test
+    void membersDevicesAndInvitationsOfAnotherHouseholdAreNotFound() {
+        String other = TestAuth.enroll(mvc, "Other-" + sfx, "phone");
+        jdbc.sql("UPDATE app_user SET role = 'owner' WHERE name = :name").param("name", "Other-" + sfx).update();
+        String members = TestAuth.body(get(ownerToken, "/v1/household/members"));
+        String ownerId = JsonPath.read(members, "$[0].userId");
+        String ownerDevice = JsonPath.read(members, "$[0].devices[0].deviceId");
+        String invitation = JsonPath.read(TestAuth.body(post(ownerToken, "/v1/household/invitations", "")),
+                "$.invitationId");
+
+        assertThat(TestAuth.body(get(other, "/v1/household/members"))).doesNotContain(ownerId);
+        assertThat(patch(other, "/v1/household/members/" + ownerId, "{\"role\": \"member\"}")).hasStatus(404);
+        assertThat(delete(other, "/v1/household/members/" + ownerId)).hasStatus(404);
+        assertThat(delete(other, "/v1/household/devices/" + ownerDevice)).hasStatus(404);
+        assertThat(TestAuth.body(get(other, "/v1/household/invitations"))).doesNotContain(invitation);
+        assertThat(delete(other, "/v1/household/invitations/" + invitation)).hasStatus(404);
+        assertThat(get(ownerToken, "/v1/me")).hasStatusOk();
+        // and the default household cannot be deleted
+        assertThat(error(delete(other, "/v1/household"))).isEqualTo("default_household");
+    }
+
+    @Test
+    void theLastUserTakesTheHouseholdAlong() {
+        String memberToken = member("Member-" + sfx);
+        assertThat(delete(memberToken, "/v1/me")).hasStatus(204);
+        assertThat(get(memberToken, "/v1/me")).hasStatus(401);
+        assertThat(deletedAt()).isNull();
+
+        assertThat(delete(ownerToken, "/v1/me")).hasStatus(204);
+        assertThat(get(ownerToken, "/v1/me")).hasStatus(401);
+        assertThat(deletedAt()).isNotNull();
+    }
+
+    @Test
+    void anOwnerDeletesTheHouseholdWithAllUsers() {
+        String memberToken = member("Member-" + sfx);
+        String invitation = JsonPath.read(TestAuth.body(post(ownerToken, "/v1/household/invitations", "")), "$.code");
+        assertThat(error(delete(memberToken, "/v1/household"))).isEqualTo("owner_required");
+
+        assertThat(delete(ownerToken, "/v1/household")).hasStatus(204);
+        assertThat(get(ownerToken, "/v1/me")).hasStatus(401);
+        assertThat(get(memberToken, "/v1/me")).hasStatus(401);
+        assertThat(deletedAt()).isNotNull();
+        assertThat(error(join(invitation, "Late-" + sfx))).isEqualTo("invalid_invitation_code");
+        // the names are free again
+        assertThat(post(null, "/v1/auth/households", """
+                {"householdName": "Znowu", "userName": "Owner-%s", "password": "x", "deviceName": "Pixel"}"""
+                .formatted(sfx))).hasStatus(201);
+    }
+
+    @Test
+    void theRecipeLimitStopsNewRecipesAndTheAdminChangesIt() {
+        assertThat(adminPatch("{\"recipeLimit\": 1}")).hasStatusOk();
+        TestCaptures.newRecipe(mvc, ownerToken, worker,
+                TestCaptures.webCapture(UUID.randomUUID(), "https://limit-" + sfx + ".pl/1", "Pierwszy " + sfx));
+
+        UUID second = TestCaptures.upload(mvc, ownerToken,
+                TestCaptures.webCapture(UUID.randomUUID(), "https://limit-" + sfx + ".pl/2", "Drugi " + sfx));
+        worker.drain();
+        var refused = TestCaptures.resolve(mvc, ownerToken, second, "{\"action\":\"NEW\"}");
+        assertThat(refused).hasStatus(409);
+        assertThat(error(refused)).isEqualTo("recipe_limit_reached");
+
+        assertThat(adminPatch("{\"recipeLimit\": null}")).hasStatusOk();
+        assertThat(TestCaptures.resolve(mvc, ownerToken, second, "{\"action\":\"NEW\"}")).hasStatusOk();
+        String household = TestAuth.body(adminPatch("{\"name\": \"Limit " + sfx + "\"}"));
+        assertThat(JsonPath.<Integer>read(household, "$.recipes")).isEqualTo(2);
+        assertThat(JsonPath.<Object>read(household, "$.recipeLimit")).isNull();
+        assertThat(error(adminPatch("{\"recipeLimit\": -1}"))).isEqualTo("invalid_request");
+    }
+
+    @Test
+    void decisionsStoredBeforeProcessingWaitWhenTheLimitIsReached() {
+        assertThat(adminPatch("{\"recipeLimit\": 1}")).hasStatusOk();
+        UUID first = TestCaptures.upload(mvc, ownerToken,
+                TestCaptures.webCapture(UUID.randomUUID(), "https://wait-" + sfx + ".pl/1", "Pierwszy " + sfx));
+        UUID second = TestCaptures.upload(mvc, ownerToken,
+                TestCaptures.webCapture(UUID.randomUUID(), "https://wait-" + sfx + ".pl/2", "Drugi " + sfx));
+        assertThat(TestCaptures.resolve(mvc, ownerToken, first, "{\"action\":\"NEW\"}")).hasStatusOk();
+        assertThat(TestCaptures.resolve(mvc, ownerToken, second, "{\"action\":\"NEW\"}")).hasStatusOk();
+        worker.drain();
+
+        List<String> states = List.of(state(first), state(second));
+        assertThat(states).containsExactlyInAnyOrder("done", "needs_attention");
+        UUID waiting = state(first).equals("needs_attention") ? first : second;
+        assertThat(TestAuth.body(TestCaptures.status(mvc, ownerToken, waiting))).contains("RECIPE_LIMIT_REACHED");
+
+        assertThat(adminPatch("{\"recipeLimit\": 2}")).hasStatusOk();
+        assertThat(TestCaptures.resolve(mvc, ownerToken, waiting, "{\"action\":\"NEW\"}")).hasStatusOk();
+        assertThat(state(waiting)).isEqualTo("done");
+    }
+
+    @Test
+    void theHouseholdLimitStopsRegistration() {
+        int households = jdbc.sql("SELECT count(*) FROM household WHERE deleted_at IS NULL").query(Integer.class).single();
+        var full = new HouseholdService(jdbc, accounts, tokens, rateLimiter,
+                new HouseholdProperties(households, 40, 10, Duration.ofHours(48)), new RegistrationProperties(null, 10));
+        assertThatThrownBy(() -> full.createHousehold("Pełny", "Full-" + sfx, "x", "Pixel"))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.error()).isEqualTo("household_limit_reached"));
+
+        var slow = new HouseholdService(jdbc, accounts, tokens, rateLimiter,
+                new HouseholdProperties(households + 10, 40, 1, Duration.ofHours(48)), new RegistrationProperties(null, 10));
+        slow.createHousehold("Jeden", "One-" + sfx, "x", "Pixel");
+        assertThatThrownBy(() -> slow.createHousehold("Dwa", "Two-" + sfx, "x", "Pixel"))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.error()).isEqualTo("too_many_requests"));
+    }
+
+    @Test
+    void theAdminListsHouseholdsAndEnrollsIntoOne() {
+        String list = TestAuth.body(mvc.get().uri("/v1/admin/households")
+                .header(HttpHeaders.AUTHORIZATION, TestAuth.adminBasic()).exchange());
+        assertThat(JsonPath.<List<String>>read(list, "$[*].householdId"))
+                .contains(Households.DEFAULT_ID.toString(), householdId);
+
+        var enrolled = mvc.post().uri("/v1/admin/enrollments").header(HttpHeaders.AUTHORIZATION, TestAuth.adminBasic())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"userName\": \"Tablet-%s\", \"deviceName\": \"Tablet\", \"householdId\": \"%s\"}"
+                        .formatted(sfx, householdId))
+                .exchange();
+        assertThat(enrolled).hasStatus(201);
+        String tablet = JsonPath.read(TestAuth.body(enrolled), "$.token");
+        assertThat(JsonPath.<String>read(TestAuth.body(get(tablet, "/v1/me")), "$.household.householdId"))
+                .isEqualTo(householdId);
+        assertThat(mvc.post().uri("/v1/admin/enrollments").header(HttpHeaders.AUTHORIZATION, TestAuth.adminBasic())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"userName\": \"X-%s\", \"deviceName\": \"T\", \"householdId\": \"%s\"}"
+                        .formatted(sfx, UUID.randomUUID()))).hasStatus(404);
+        assertThat(mvc.patch().uri("/v1/admin/households/{id}", UUID.randomUUID())
+                .header(HttpHeaders.AUTHORIZATION, TestAuth.adminBasic())
+                .contentType(MediaType.APPLICATION_JSON).content("{}")).hasStatus(404);
+    }
+
+    private String member(String userName) {
+        String code = JsonPath.read(TestAuth.body(post(ownerToken, "/v1/household/invitations", "")), "$.code");
+        var joined = join(code, userName);
+        assertThat(joined).hasStatus(201);
+        return JsonPath.read(TestAuth.body(joined), "$.token");
+    }
+
+    private MvcTestResult join(String code, String userName) {
+        return post(null, "/v1/auth/join", """
+                {"invitationCode": "%s", "userName": "%s", "password": "hasło", "deviceName": "Pixel"}"""
+                .formatted(code, userName));
+    }
+
+    private Object deletedAt() {
+        return jdbc.sql("SELECT deleted_at FROM household WHERE id = :id").param("id", UUID.fromString(householdId))
+                .query((rs, n) -> rs.getObject("deleted_at")).list().getFirst();
+    }
+
+    private String state(UUID captureId) {
+        return JsonPath.read(TestAuth.body(TestCaptures.status(mvc, ownerToken, captureId)), "$.status");
+    }
+
+    private MvcTestResult adminPatch(String body) {
+        return mvc.patch().uri("/v1/admin/households/{id}", householdId)
+                .header(HttpHeaders.AUTHORIZATION, TestAuth.adminBasic())
+                .contentType(MediaType.APPLICATION_JSON).content(body).exchange();
+    }
+
+    private MvcTestResult get(String token, String uri) {
+        return mvc.get().uri(uri).header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token)).exchange();
+    }
+
+    private MvcTestResult delete(String token, String uri) {
+        return mvc.delete().uri(uri).header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token)).exchange();
+    }
+
+    private MvcTestResult patch(String token, String uri, String body) {
+        return mvc.patch().uri(uri).header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token))
+                .contentType(MediaType.APPLICATION_JSON).content(body).exchange();
+    }
+
+    private MvcTestResult post(String token, String uri, String body) {
+        var request = mvc.post().uri(uri).contentType(MediaType.APPLICATION_JSON).content(body);
+        if (token != null) {
+            request = request.header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token));
+        }
+        return request.exchange();
+    }
+
+    private static String error(MvcTestResult result) {
+        return JsonPath.read(TestAuth.body(result), "$.error");
+    }
+}

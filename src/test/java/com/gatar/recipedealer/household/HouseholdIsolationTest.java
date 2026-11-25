@@ -48,7 +48,10 @@ class HouseholdIsolationTest {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
-    /** Device endpoints checked below; {@code PUT /v1/me/password} only ever acts on the caller itself. */
+    /**
+     * Device endpoints checked below or in {@link HouseholdAccountsTest}; {@code PUT /v1/me/password} only ever acts
+     * on the caller itself.
+     */
     private static final Set<String> COVERED = Set.of(
             "PUT /v1/captures/{captureId}",
             "GET /v1/captures/{captureId}",
@@ -77,7 +80,19 @@ class HouseholdIsolationTest {
             "PUT /v1/recipes/{recipeId}/tags",
             "POST /v1/blobs",
             "GET /v1/blobs/{sha256}",
-            "PUT /v1/me/password");
+            "PUT /v1/me/password",
+            // HouseholdAccountsTest: these act on the caller or its household, ids of another household are 404
+            "GET /v1/me",
+            "DELETE /v1/me",
+            "PATCH /v1/household",
+            "DELETE /v1/household",
+            "GET /v1/household/members",
+            "PATCH /v1/household/members/{userId}",
+            "DELETE /v1/household/members/{userId}",
+            "DELETE /v1/household/devices/{deviceId}",
+            "POST /v1/household/invitations",
+            "GET /v1/household/invitations",
+            "DELETE /v1/household/invitations/{invitationId}");
 
     @Autowired
     MockMvcTester mvc;

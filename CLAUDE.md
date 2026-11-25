@@ -39,7 +39,7 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Self-service: `POST /v1/auth/register` (needs the household `REGISTRATION_CODE`; without it registration is
   disabled) and `POST /v1/auth/login`; both return a new device token. Admin enrollment stays, without a password and
   beyond the limit.
-- At most `MAX_USERS` (10) users in total (all households). Passwords: no rules, bcrypt, at most 72 bytes (rejected, not truncated).
+- At most `MAX_USERS` (10) users per household (since 2026-11-25; before: in total). Passwords: no rules, bcrypt, at most 72 bytes (rejected, not truncated).
 - Tokens do not expire. A device = user + device name (case ignored): logging in (or enrolling) again with the same
   name replaces that device's token and keeps its id; a new name adds a device.
 - `DELETE /v1/admin/users/{userId}` is a soft delete (`deleted_at`), also for users with history: devices revoked,
@@ -59,9 +59,25 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   SQL, background jobs take the household of their capture or recipe. `GET /v1/blobs` serves only blobs the
   household uses (`BlobController.VISIBLE`). A capture id another household used is 409 `capture_id_taken`.
 - `HouseholdIsolationTest` covers every device endpoint and fails when a new one is added without a case.
-- Registration code and admin enrollment add users to the default household; household registration, invitations,
-  self-service devices and the limits (user, 2026-11-25: for now at most 20 households, 40 recipes each) come in
-  stage 2.
+- Registration code and admin enrollment (without `householdId`) add users to the default household.
+
+## Household accounts (agreed 2026-11-25, stage 2)
+- Anyone creates a household (`POST /v1/auth/households`, no code) and becomes its owner. Limits (user, 2026-11-25:
+  redefined closer to the Play Store): `MAX_HOUSEHOLDS` 20 live households incl. the default one, at most 10 new per
+  hour (in memory), `MAX_USERS` 10 users **per household** (was: in total).
+- Recipe limit (user, 2026-11-25): `household.recipe_limit`, configurable per household, new households start with
+  `DEFAULT_RECIPE_LIMIT` 40, NULL = no limit (the default household). Counts live recipes; checked with the household
+  row locked (`Households.fullRecipeLimit`) at a NEW request (409 `recipe_limit_reached`) and when a stored NEW is
+  applied (also auto-NEW): it then stays pending, capture `needs_attention` / `RECIPE_LIMIT_REACHED`; sending NEW again
+  applies it once there is room. The admin changes it (`PATCH /v1/admin/households/{id}`); a lower limit removes
+  nothing.
+- Joining: owners create single-use invitation codes (8 characters without 0/O/1/I/L, shown as `ABCD-EFGH`, SHA-256
+  stored, 48 h); `POST /v1/auth/join`; wrong codes count in `LoginRateLimiter` (key `invitation`).
+- Roles `owner | member`; owner-only: rename, delete household, roles, remove members, invitations; members revoke
+  only their own devices. A household always keeps an owner while it has members (409 `last_owner`).
+- Deleting is soft (account: `DELETE /v1/me`; household: `DELETE /v1/household`, never the default one): users get
+  `deleted_at` (names free), devices revoked, household `deleted_at`, data kept. A real purge of a household's data
+  is still to do (needed for the Play Store's account deletion).
 
 ## Before the beta (agreed 2026-10-27)
 - Auto-NEW: processing stores NEW (capture's user/device, no tags) for a candidate without a decision that matches

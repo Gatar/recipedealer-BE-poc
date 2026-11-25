@@ -5,8 +5,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
  * Self-service registration: {@code code} is the household's registration code ({@code REGISTRATION_CODE}); without
- * it registration is disabled. {@code maxUsers} caps all users, including those enrolled by the admin (the admin
- * may still enroll beyond it).
+ * it registration is disabled. {@code maxUsers} caps the users of one household, including those enrolled by the
+ * admin (the admin may still enroll beyond it).
  */
 @ConfigurationProperties("recipedealer.registration")
 public record RegistrationProperties(String code, @DefaultValue("10") int maxUsers) {

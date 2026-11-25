@@ -159,6 +159,568 @@
       ]
     },
     {
+      "name": "Households",
+      "description": "Every user belongs to one household; owners invite members and manage members and devices.",
+      "item": [
+        {
+          "name": "Create household",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/households",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "households"
+              ]
+            },
+            "description": "A household with its owner and the owner's first device. 201 Session; 409 user_exists / household_limit_reached; 429 too_many_requests.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"householdName\": \"Dom\",\n  \"userName\": \"{{userName}}\",\n  \"password\": \"{{password}}\",\n  \"deviceName\": \"{{deviceName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Join with invitation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/join",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "join"
+              ]
+            },
+            "description": "Joins the household of a single-use code as a member. 201 Session; 403 invalid_invitation_code; 409 user_exists / user_limit_reached; 429 too_many_requests.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invitationCode\": \"{{invitationCode}}\",\n  \"userName\": \"{{userName}}\",\n  \"password\": \"{{password}}\",\n  \"deviceName\": \"{{deviceName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "me"
+              ]
+            },
+            "description": "The token's user, device and household (role, recipe limit, counts)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete my account",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "me"
+              ]
+            },
+            "description": "204; 409 last_owner. The last user takes the household along (not the default household)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rename household",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/household",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "household"
+              ]
+            },
+            "description": "Owner. 200 HouseholdView; 403 owner_required.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dom\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete household",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/household",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "household"
+              ]
+            },
+            "description": "Owner; deletes the household with all its users. 204; 403 owner_required; 409 default_household."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Members",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/household/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "household",
+                "members"
+              ]
+            },
+            "description": "The household's users with their working devices."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change member role",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/household/members/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "household",
+                "members",
+                "{{userId}}"
+              ]
+            },
+            "description": "Owner. 200 members; 403 owner_required; 404; 409 last_owner.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"owner\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove member",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/household/members/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "household",
+                "members",
+                "{{userId}}"
+              ]
+            },
+            "description": "Owner. 204; 400 (the caller itself); 403 owner_required; 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Revoke device",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/household/devices/{{deviceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "household",
+                "devices",
+                "{{deviceId}}"
+              ]
+            },
+            "description": "Owners any device of the household, members their own. 204; 403 owner_required; 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create invitation",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/household/invitations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "household",
+                "invitations"
+              ]
+            },
+            "description": "Owner. 201 with the code (shown only here), valid 48 h, single use; 403 owner_required."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invitations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/household/invitations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "household",
+                "invitations"
+              ]
+            },
+            "description": "Owner. Invitations that still work, without codes."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Revoke invitation",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/household/invitations/{{invitationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "household",
+                "invitations",
+                "{{invitationId}}"
+              ]
+            },
+            "description": "Owner. 204; 403 owner_required; 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Captures",
       "description": "Uploading creates real data: on the production server a capture with a new URL and title becomes a new recipe by itself (auto-NEW). Delete it afterwards (Edit lock → Acquire, Recipes → Delete).",
       "item": [
@@ -1114,10 +1676,10 @@
                 "enrollments"
               ]
             },
-            "description": "Creates the user when new; no password, beyond the user limit. Saves the token into `deviceToken`.",
+            "description": "Creates the user when new; no password, beyond the user limit. Saves the token into `deviceToken`. Optional householdId (default household without it); 404 for an unknown one.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"userName\": \"{{userName}}\",\n  \"deviceName\": \"{{deviceName}}\"\n}",
+              "raw": "{\n  \"userName\": \"{{userName}}\",\n  \"deviceName\": \"{{deviceName}}\",\n  \"householdId\": \"{{householdId}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1136,6 +1698,97 @@
                   "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
                   "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
                   "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Households",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/households",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "households"
+              ]
+            },
+            "description": "All households with recipe limit and counts of live users, devices, recipes and captures."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update household",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/households/{{householdId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "households",
+                "{{householdId}}"
+              ]
+            },
+            "description": "Any of name and recipeLimit (null = no limit). 200; 400; 404.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipeLimit\": 40\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token !== undefined && body.token !== null) pm.collectionVariables.set('deviceToken', body.token);",
+                  "    if (body.userId !== undefined && body.userId !== null) pm.collectionVariables.set('userId', body.userId);",
+                  "    if (body.deviceId !== undefined && body.deviceId !== null) pm.collectionVariables.set('deviceId', body.deviceId);",
+                  "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
+                  "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
+                  "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
                   "}"
                 ]
               }
@@ -1528,6 +2181,21 @@
     },
     {
       "key": "backupName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "householdId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "invitationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "invitationCode",
       "value": "",
       "type": "string"
     }

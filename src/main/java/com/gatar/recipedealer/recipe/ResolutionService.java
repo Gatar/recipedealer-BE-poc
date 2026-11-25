@@ -36,6 +36,7 @@ public class ResolutionService {
 
     public static final int MAX_CANDIDATES = 100;
     public static final String TARGET_GONE = "TARGET_GONE";
+    public static final String RECIPE_LIMIT_REACHED = "RECIPE_LIMIT_REACHED";
 
     private final ProcessingRepository processing;
     private final ResolutionRepository resolutions;
@@ -96,6 +97,12 @@ public class ResolutionService {
             }
             throw ApiException.conflict("already_resolved", "candidate " + index + " was already resolved differently");
         }
+        if (action == Action.NEW) {
+            Integer full = households.fullRecipeLimit(device.householdId());
+            if (full != null) {
+                throw ApiException.conflict("recipe_limit_reached", limitMessage(full));
+            }
+        }
         if (!same || !existing.get().tags().equals(chosen)) {
             resolutions.upsertPending(captureId, index, action, targetRecipeId, chosen, device.userId(), device.deviceId());
         }
@@ -138,18 +145,29 @@ public class ResolutionService {
         Map<Integer, Resolution> byIndex = resolutions.forCapture(captureId).stream()
                 .collect(Collectors.toMap(Resolution::index, Function.identity()));
         boolean targetGone = false;
+        Integer fullLimit = null;
         for (StoredCandidate candidate : candidates) {
             Resolution resolution = byIndex.get(candidate.index());
             if (resolution == null) {
                 continue;
             }
             if (!resolution.applied()) {
-                targetGone |= !applyDecision(captureId, runId, candidate, resolution);
+                Applied applied = applyDecision(captureId, runId, candidate, resolution);
+                targetGone |= applied == Applied.TARGET_GONE;
+                if (applied == Applied.LIMIT_REACHED) {
+                    fullLimit = households.fullRecipeLimit(households.ofCapture(captureId));
+                }
             } else if (newRun && resolution.appliedRecipeId() != null) {
                 applyAutomatic(captureId, runId, candidate, resolution.appliedRecipeId());
             }
         }
-        updateState(captureId, candidates, targetGone);
+        updateState(captureId, candidates, targetGone, fullLimit);
+    }
+
+    private enum Applied { APPLIED, TARGET_GONE, LIMIT_REACHED }
+
+    private static String limitMessage(int limit) {
+        return "The household has reached its limit of " + limit + " recipes; delete a recipe and choose again.";
     }
 
     /** After the capture's taggings finished: the state as the capture's current result gives it. */
@@ -161,14 +179,20 @@ public class ResolutionService {
                 .ifPresent(run -> apply(captureId, run.id(), processing.candidates(run.id()), false));
     }
 
-    /** @return false if the UPDATE target disappeared and the user has to decide again */
-    private boolean applyDecision(UUID captureId, UUID runId, StoredCandidate candidate, Resolution resolution) {
+    /**
+     * {@code TARGET_GONE}: the UPDATE target disappeared and the user has to decide again; {@code LIMIT_REACHED}: the
+     * household has no room for the NEW recipe, the decision stays pending.
+     */
+    private Applied applyDecision(UUID captureId, UUID runId, StoredCandidate candidate, Resolution resolution) {
         var content = new RevisionService.Content(candidate.content(), candidate.schemaVersion(), Origin.MACHINE, runId,
                 captureId, resolution.userId(), resolution.deviceId(), candidate.needsReview());
         RevisionService.Outcome outcome;
         List<String> messages = new ArrayList<>();
         UUID householdId = households.ofCapture(captureId);
         if (resolution.action() == Action.NEW) {
+            if (households.fullRecipeLimit(householdId) != null) {
+                return Applied.LIMIT_REACHED;
+            }
             outcome = revisions.createRecipe(householdId, content);
             tags.assignToNewRecipe(householdId, outcome.recipeId(), resolution.tags());
             // a translated recipe is tagged after its translation (AutoTranslator)
@@ -182,7 +206,7 @@ public class ResolutionService {
             var target = recipes.liveTarget(resolution.targetRecipeId());
             if (target.isEmpty()) {
                 resolutions.delete(captureId, candidate.index());
-                return false;
+                return Applied.TARGET_GONE;
             }
             outcome = revisions.addRevision(target.get(), content, true);
             if (outcome.headMoved()) {
@@ -194,7 +218,7 @@ public class ResolutionService {
         messages.addAll(attachKeys(captureId, candidate, outcome.recipeId()));
         resolutions.markApplied(captureId, candidate.index(), runId, outcome.recipeId(), outcome.revisionId(),
                 String.join(" ", messages));
-        return true;
+        return Applied.APPLIED;
     }
 
     private void applyAutomatic(UUID captureId, UUID runId, StoredCandidate candidate, UUID recipeId) {
@@ -224,7 +248,8 @@ public class ResolutionService {
         return messages;
     }
 
-    private void updateState(UUID captureId, List<StoredCandidate> candidates, boolean targetGone) {
+    /** @param fullLimit the household's recipe limit when a NEW decision could not be applied for it, else null */
+    private void updateState(UUID captureId, List<StoredCandidate> candidates, boolean targetGone, Integer fullLimit) {
         Map<Integer, Resolution> byIndex = resolutions.forCapture(captureId).stream()
                 .collect(Collectors.toMap(Resolution::index, Function.identity()));
         boolean allApplied = candidates.stream()
@@ -239,6 +264,8 @@ public class ResolutionService {
         } else if (targetGone) {
             processing.setState(captureId, CaptureStatus.NEEDS_DECISION, TARGET_GONE,
                     "The recipe chosen for this capture was deleted; please choose again.");
+        } else if (fullLimit != null) {
+            processing.setState(captureId, CaptureStatus.NEEDS_ATTENTION, RECIPE_LIMIT_REACHED, limitMessage(fullLimit));
         } else {
             processing.setState(captureId, CaptureStatus.NEEDS_DECISION, null, null);
         }

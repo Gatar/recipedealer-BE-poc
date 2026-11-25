@@ -29,7 +29,13 @@ recipedealer:
   registration:
     # Without a code, POST /v1/auth/register answers 403 registration_disabled.
     code: ${REGISTRATION_CODE:}
+    # Users per household (registration, invitations); the admin may enroll beyond it.
     max-users: ${MAX_USERS:10}
+  households:
+    max-households: ${MAX_HOUSEHOLDS:20}
+    default-recipe-limit: ${DEFAULT_RECIPE_LIMIT:40}
+    max-new-per-hour: 10
+    invitation-ttl: 48h
   llm:
     # Without a key the LLM steps are disabled: the cascade stops after the heuristic.
     api-key: ${ANTHROPIC_API_KEY:}

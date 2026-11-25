@@ -96,6 +96,13 @@ class AccountTest {
                 .query(Long.class).single()).isZero();
     }
 
+    /** The user limit counts per household; the registration code registers into the default one. */
+    private int defaultHouseholdUsers() {
+        return jdbc.sql("SELECT count(*) FROM app_user WHERE deleted_at IS NULL AND household_id = :household")
+                .param("household", com.gatar.recipedealer.household.Households.DEFAULT_ID)
+                .query(Integer.class).single();
+    }
+
     @Test
     void registrationIsDisabledWithoutACode() {
         var service = new AccountService(jdbc, tokens, passwords, rateLimiter, new RegistrationProperties(null, 10));
@@ -105,7 +112,7 @@ class AccountTest {
 
     @Test
     void registrationStopsAtTheUserLimit() {
-        int users = jdbc.sql("SELECT count(*) FROM app_user WHERE deleted_at IS NULL").query(Integer.class).single();
+        int users = defaultHouseholdUsers();
         var full = new AccountService(jdbc, tokens, passwords, rateLimiter, new RegistrationProperties(CODE, users));
         assertThatThrownBy(() -> full.register(name, "a", "phone", CODE))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.error()).isEqualTo("user_limit_reached"));
@@ -142,7 +149,7 @@ class AccountTest {
     void aDeletedUserLosesAccessAndItsNameAndLimitSlotAreFree() {
         String first = TestAuth.body(register(name, "hasło", "phone", CODE));
         String userId = JsonPath.read(first, "$.userId");
-        int users = jdbc.sql("SELECT count(*) FROM app_user WHERE deleted_at IS NULL").query(Integer.class).single();
+        int users = defaultHouseholdUsers();
 
         assertThat(deleteUser(userId)).hasStatus(204);
         assertThat(deleteUser(userId)).hasStatus(204);

@@ -44,12 +44,13 @@ public class AccountService {
     }
 
     /** A new device token of a user; {@code userName} as stored. */
-    public record Session(String token, UUID userId, UUID deviceId, String userName) {
+    public record Session(String token, UUID userId, UUID deviceId, String userName, UUID householdId) {
     }
 
-    private record Account(UUID id, String name, String passwordHash) {
+    private record Account(UUID id, String name, String passwordHash, UUID householdId) {
     }
 
+    /** Registration with the registration code: a new member of the default household. */
     @Transactional
     public Session register(String userName, String password, String deviceName, String registrationCode) {
         if (!registration.enabled()) {
@@ -61,26 +62,38 @@ public class AccountService {
             rateLimiter.failure(REGISTRATION_KEY);
             throw new ApiException(HttpStatus.FORBIDDEN, "invalid_registration_code", "invalid registration code");
         }
+        return createUser(Households.DEFAULT_ID, "member", userName, password, deviceName);
+    }
+
+    /**
+     * A new user with a password and its first device in a household; at most {@code MAX_USERS} users per household.
+     * 409 {@code user_exists} for a name any household uses.
+     */
+    @Transactional
+    public Session createUser(UUID householdId, String role, String userName, String password, String deviceName) {
         String hash = passwords.encode(checkedPassword(password));
         // Serializes registrations, so concurrent ones cannot exceed the limit.
         jdbc.sql("SELECT pg_advisory_xact_lock(hashtext('app_user_registration'))").query().singleRow();
-        long users = jdbc.sql("SELECT count(*) FROM app_user WHERE deleted_at IS NULL").query(Long.class).single();
+        long users = jdbc.sql("SELECT count(*) FROM app_user WHERE deleted_at IS NULL AND household_id = :household")
+                .param("household", householdId).query(Long.class).single();
         if (users >= registration.maxUsers()) {
-            throw ApiException.conflict("user_limit_reached", "the limit of " + registration.maxUsers() + " users is reached");
+            throw ApiException.conflict("user_limit_reached",
+                    "the household's limit of " + registration.maxUsers() + " users is reached");
         }
         UUID userId = jdbc.sql("""
-                        INSERT INTO app_user (id, name, password_hash, household_id) VALUES (:id, :name, :hash, :household)
+                        INSERT INTO app_user (id, name, password_hash, household_id, role)
+                        VALUES (:id, :name, :hash, :household, :role)
                         ON CONFLICT (lower(name)) WHERE deleted_at IS NULL DO NOTHING
                         RETURNING id""")
                 .param("id", Ids.newId())
-                // the registration code is the default household's code
-                .param("household", Households.DEFAULT_ID)
+                .param("household", householdId)
+                .param("role", role)
                 .param("name", userName.strip())
                 .param("hash", hash)
                 .query(UUID.class)
                 .optional()
                 .orElseThrow(() -> ApiException.conflict("user_exists", "user " + userName.strip() + " already exists"));
-        return session(tokens.issue(userId, deviceName), userName.strip());
+        return session(tokens.issue(userId, deviceName), userName.strip(), householdId);
     }
 
     /** A new token for the user's device with this name; it replaces the device's previous token. */
@@ -94,7 +107,7 @@ public class AccountService {
             rateLimiter.failure(key);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "invalid_credentials", "wrong user name or password");
         }
-        return session(tokens.issue(account.get().id(), deviceName), account.get().name());
+        return session(tokens.issue(account.get().id(), deviceName), account.get().name(), account.get().householdId());
     }
 
     /** Sets the caller's password; {@code currentPassword} is required once the user has one. */
@@ -116,9 +129,10 @@ public class AccountService {
     }
 
     private Optional<Account> account(String condition, String param, Object value) {
-        return jdbc.sql("SELECT id, name, password_hash FROM app_user WHERE " + condition)
+        return jdbc.sql("SELECT id, name, password_hash, household_id FROM app_user WHERE " + condition)
                 .param(param, value)
-                .query((rs, n) -> new Account(Jdbc.uuid(rs, "id"), rs.getString("name"), rs.getString("password_hash")))
+                .query((rs, n) -> new Account(Jdbc.uuid(rs, "id"), rs.getString("name"), rs.getString("password_hash"),
+                        Jdbc.uuid(rs, "household_id")))
                 .optional();
     }
 
@@ -138,7 +152,7 @@ public class AccountService {
         return password;
     }
 
-    private static Session session(DeviceTokenService.Enrollment enrollment, String userName) {
-        return new Session(enrollment.token(), enrollment.userId(), enrollment.deviceId(), userName);
+    private static Session session(DeviceTokenService.Enrollment enrollment, String userName, UUID householdId) {
+        return new Session(enrollment.token(), enrollment.userId(), enrollment.deviceId(), userName, householdId);
     }
 }

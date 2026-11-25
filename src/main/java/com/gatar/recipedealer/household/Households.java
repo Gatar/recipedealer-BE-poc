@@ -42,6 +42,24 @@ public class Households {
         return owns("recipe", householdId, recipeId);
     }
 
+    /**
+     * The household's recipe limit if it has no room for one more live recipe, else null. Locks the household row
+     * until the end of the transaction, so recipes created concurrently are counted.
+     */
+    public Integer fullRecipeLimit(UUID householdId) {
+        // list(): single() rejects a null value, and null means no limit
+        Integer limit = jdbc.sql("SELECT recipe_limit FROM household WHERE id = :id FOR UPDATE")
+                .param("id", householdId).query((rs, n) -> (Integer) rs.getObject("recipe_limit")).list().getFirst();
+        if (limit == null) {
+            return null;
+        }
+        long live = jdbc.sql("""
+                        SELECT count(*) FROM recipe
+                        WHERE household_id = :id AND deleted_at IS NULL AND merged_into IS NULL""")
+                .param("id", householdId).query(Long.class).single();
+        return live >= limit ? limit : null;
+    }
+
     public UUID ofCapture(UUID captureId) {
         return jdbc.sql("SELECT household_id FROM capture WHERE id = :id").param("id", captureId)
                 .query(UUID.class).single();

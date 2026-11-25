@@ -85,7 +85,7 @@ A recipe whose thumbnail arrives later comes again in the sync feed.
 ```json
 {
   "captureId": "…", "status": "accepted | processing | needs_decision | needs_attention | done",
-  "reason": "AWAITING_EXTRACTION | PROCESSING_FAILED | LLM_UNAVAILABLE | LLM_REQUEST_REJECTED | TARGET_GONE | null",
+  "reason": "AWAITING_EXTRACTION | PROCESSING_FAILED | LLM_UNAVAILABLE | LLM_REQUEST_REJECTED | TARGET_GONE | RECIPE_LIMIT_REACHED | null",
   "message": "… | null",
   "recipes": [{"recipeId": "…", "title": "…"}],
   "candidates": [{"index": 0, "title": "…", "ingredientCount": 9, "stepCount": 5, "needsReview": false,
@@ -104,6 +104,9 @@ A recipe whose thumbnail arrives later comes again in the sync feed.
     account has no credit). Not retried; force extraction again once it is fixed.
   - `LLM_REQUEST_REJECTED`: the Claude API refused this capture's request (e.g. an attachment it cannot read).
   - `TARGET_GONE`: the recipe chosen with UPDATE was deleted; decide again.
+  - `RECIPE_LIMIT_REACHED` (status `needs_attention`): a NEW decision (also an automatic one) waits because the
+    household has as many live recipes as its limit. After a recipe is deleted or the limit is raised, send the NEW
+    resolution again; or choose UPDATE, or delete the capture.
 
 **Extraction cascade.** Processing tries the steps in order and stops at the first result that passes validation
 (title, at least one ingredient and one step; for LLM steps also a complete, schema-conforming answer):
@@ -174,22 +177,24 @@ While a limit is exhausted, the request answers 429 `too_many_requests`, even wi
 **Session** (registration and login):
 
 ```json
-{"token": "rd_…", "userId": "…", "deviceId": "…", "userName": "Ania"}
+{"token": "rd_…", "userId": "…", "deviceId": "…", "userName": "Ania", "householdId": "…"}
 ```
 
 The token is shown only in this response; the server keeps only its hash. `userName` is spelled as stored.
+`householdId` is the user's household (added 2026-11-25; older backends omit it).
 
 ### POST /v1/auth/register
 
-Creates a user with the first device. No token needed.
+Creates a member of the default household with the first device. No token needed. New households register with
+`POST /v1/auth/households`, members of other households join with `POST /v1/auth/join`.
 
 ```json
 {"userName": "Ania", "password": "…", "deviceName": "Pixel 9", "registrationCode": "…"}
 ```
 
 - `userName`, `deviceName`: 1–100 characters.
-- `registrationCode`: the household's code, `REGISTRATION_CODE` in the server's `.env`.
-- At most 10 users in total (`MAX_USERS`), counting users enrolled by the admin, who is not limited.
+- `registrationCode`: the default household's code, `REGISTRATION_CODE` in the server's `.env`.
+- At most 10 users per household (`MAX_USERS`), counting users enrolled by the admin, who is not limited.
 
 Responses:
 
@@ -232,6 +237,127 @@ Sets or changes the password of the token's user. This is how a user enrolled by
 - **401** `unauthorized`: no valid token.
 - **403** `invalid_credentials`: wrong or missing `currentPassword`.
 - **429** `too_many_requests`.
+
+## Households
+
+Every user belongs to one household. Anyone creates a household and becomes its **owner**; owners invite
+**members** with single-use codes and manage members and devices. At most 20 households (`MAX_HOUSEHOLDS`, the
+default household included) and at most 10 new ones per hour on the server; at most 10 users per household
+(`MAX_USERS`). A new household may keep at most 40 live recipes (`DEFAULT_RECIPE_LIMIT`); the admin changes the limit
+per household, the default household has none. Deleting is soft: users and the household are marked deleted, their
+devices stop working and their names are free again; the data stays on the server.
+
+Errors of this section: **403** `owner_required` (the caller is a member, the action needs an owner), **409**
+`last_owner` (the household would be left without an owner while it has other members).
+
+**HouseholdView:** `{"householdId": "…", "name": "Dom", "recipeLimit": 40, "recipeCount": 12, "userLimit": 10,
+"userCount": 3, "createdAt": "…"}`; `recipeLimit` is `null` for no limit.
+
+### POST /v1/auth/households
+
+Creates a household with its owner and the owner's first device. No token needed.
+
+```json
+{"householdName": "Dom Kowalskich", "userName": "Ania", "password": "…", "deviceName": "Pixel 9"}
+```
+
+- **201** Session (Accounts), `householdId` = the new household.
+- **400** `invalid_request`: a missing field, a name over 100 characters, an empty or too long password.
+- **409** `user_exists`: user names are unique across all households.
+- **409** `household_limit_reached`.
+- **429** `too_many_requests`: too many new households within the last hour.
+
+### POST /v1/auth/join
+
+Joins the household of an invitation code as a member. No token needed.
+
+```json
+{"invitationCode": "ABCD-EFGH", "userName": "Bartek", "password": "…", "deviceName": "Pixel 9"}
+```
+
+The code is read without case, spaces or dashes. It works once, for 48 hours, while the household exists.
+
+- **201** Session.
+- **400** `invalid_request`.
+- **403** `invalid_invitation_code`: wrong, used, revoked or expired. Counts as a failed attempt (rate limit as for
+  logins, one budget for all codes).
+- **409** `user_exists`, `user_limit_reached`.
+- **429** `too_many_requests`.
+
+### GET /v1/me
+
+The token's user, device and household:
+
+```json
+{"userId": "…", "userName": "Ania", "role": "owner | member", "hasPassword": true, "deviceId": "…",
+ "deviceName": "Pixel 9", "household": HouseholdView}
+```
+
+### DELETE /v1/me
+
+Deletes the caller's account (all its devices stop working; its history stays). The last user of a household takes
+the household along, except the default household.
+
+- **204**.
+- **409** `last_owner`: the caller is the only owner and the household has other members; make one an owner first.
+
+### PATCH /v1/household
+
+Renames the household (owner). Body `{"name": "Dom"}` (1–100 characters). **200** HouseholdView · **403**.
+
+### DELETE /v1/household
+
+Deletes the household with all its users (owner). Its invitations stop working.
+
+- **204**.
+- **403** `owner_required`.
+- **409** `default_household`: the default household cannot be deleted.
+
+### GET /v1/household/members
+
+**200** the household's users, oldest first, with their devices that work:
+
+```json
+[{"userId": "…", "userName": "Ania", "role": "owner", "createdAt": "…",
+  "devices": [{"deviceId": "…", "deviceName": "Pixel 9", "createdAt": "…", "lastUsedAt": "…", "current": true}]}]
+```
+
+`current`: the caller's device.
+
+### PATCH /v1/household/members/{userId}
+
+Changes a member's role (owner). Body `{"role": "owner | member"}`.
+
+- **200** the members, as `GET /v1/household/members`.
+- **400** `invalid_request`: another role. **403** `owner_required`. **404**: not a user of the household.
+- **409** `last_owner`: demoting the only owner.
+
+### DELETE /v1/household/members/{userId}
+
+Removes a user from the household (owner): it is deleted like with `DELETE /v1/me`.
+
+- **204**.
+- **400** `invalid_request`: the caller itself (use `DELETE /v1/me`). **403** `owner_required`. **404**.
+
+### DELETE /v1/household/devices/{deviceId}
+
+Revokes a device: owners any device of the household, members only their own. The user can log in on it again.
+
+- **204**, also when already revoked.
+- **403** `owner_required`: a member and another user's device. **404**: not a device of the household.
+
+### POST /v1/household/invitations
+
+Creates an invitation (owner). **201** `{"invitationId": "…", "code": "ABCD-EFGH", "createdBy": "Ania", "createdAt":
+"…", "expiresAt": "…"}`; the code is shown only here (the server keeps its hash). **403** `owner_required`.
+
+### GET /v1/household/invitations
+
+**200** the invitations that still work, newest first, without `code` (owner). **403** `owner_required`.
+
+### DELETE /v1/household/invitations/{invitationId}
+
+Revokes an invitation (owner). **204** · **403** `owner_required` · **404**.
 
 ## Captures
 
@@ -288,6 +414,8 @@ Responses:
 - **404**: the capture does not exist, or processing finished without candidate `index`.
 - **409** `already_resolved`: a different decision was already stored.
 - **409** `recipe_gone`: the UPDATE target does not exist or was deleted.
+- **409** `recipe_limit_reached`: NEW, and the household has as many live recipes as its limit (`recipeLimit` in
+  `GET /v1/me`).
 
 ### POST /v1/captures/{captureId}/llm-extraction
 
@@ -577,13 +705,35 @@ HTTP Basic with the admin credentials; see Conventions for the rate limit.
 
 ### POST /v1/admin/enrollments
 
-Body `{"userName": "Ania", "deviceName": "Pixel 9"}` (each 1–100 characters). The user is created in the default
-household when the name is new (an existing user keeps its household); shared devices are users too (e.g. `"userName": "Tablet"`). It works without a password and beyond the user
+Body `{"userName": "Ania", "deviceName": "Pixel 9", "householdId": "…"}` (names 1–100 characters; `householdId`
+optional). The user is created in that household, or in the default household without `householdId`, when the name
+is new (an existing user keeps its household); shared devices are users too (e.g. `"userName": "Tablet"`). It works without a password and beyond the user
 limit; the user can set a password later with `PUT /v1/me/password`. A device name the user already has replaces that
 device's token, as a login does.
 
 - **201** `{token, userId, deviceId}`. The token is shown only this once.
 - **400** `invalid_request`.
+- **404**: `householdId` names no household, or a deleted one.
+
+### GET /v1/admin/households
+
+**200** all households, oldest first, also deleted ones:
+
+```json
+[{"householdId": "…", "name": "Dom", "recipeLimit": 40, "users": 3, "devices": 4, "recipes": 12, "captures": 30,
+  "createdAt": "…", "deletedAt": null}]
+```
+
+`recipeLimit` `null` = no limit; `users`, `devices` and `recipes` count only live ones.
+
+### PATCH /v1/admin/households/{householdId}
+
+Body: any of `{"name": "Dom", "recipeLimit": 60}`; `"recipeLimit": null` removes the limit, a missing field stays as
+it is. A lower limit than the household's recipe count removes nothing; it only stops new recipes.
+
+- **200** the household, as in `GET /v1/admin/households`.
+- **400** `invalid_request`: a name of 0 or over 100 characters, a limit that is not a number ≥ 0.
+- **404**.
 
 ### GET /v1/admin/devices
 

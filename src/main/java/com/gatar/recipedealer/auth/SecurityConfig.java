@@ -1,6 +1,10 @@
 package com.gatar.recipedealer.auth;
 
+import java.time.Clock;
+
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -29,9 +33,15 @@ public class SecurityConfig {
      */
     @Bean
     @Order(1)
-    SecurityFilterChain adminChain(HttpSecurity http, AdminAuthRateLimiter rateLimiter) throws Exception {
+    SecurityFilterChain adminChain(HttpSecurity http, AdminAuthRateLimiter rateLimiter,
+                                   UserDetailsService adminUserDetailsService, PasswordEncoder passwordEncoder)
+            throws Exception {
+        // its own provider: a verified admin password is not checked with bcrypt again for a while
+        var provider = new DaoAuthenticationProvider(adminUserDetailsService);
+        provider.setPasswordEncoder(new VerifiedPasswordCache(passwordEncoder, Clock.systemUTC()));
         return http
                 .securityMatcher("/v1/admin/**", "/admin", "/admin/**")
+                .authenticationManager(new ProviderManager(provider))
                 .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("ADMIN"))
                 .httpBasic(basic -> basic.authenticationEntryPoint(rateLimiter.countingEntryPoint()))
                 .addFilterBefore(rateLimiter.blockingFilter(), BasicAuthenticationFilter.class)

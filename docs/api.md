@@ -35,6 +35,11 @@ same commit.
   | 413 | `payload_too_large` | Over 25 MiB per file or 50 MiB per request |
   | 429 | `too_many_requests` | Admin or login rate limit |
 
+- **Households:** every user belongs to one household, and a device token acts for its user's household. Captures,
+  recipes, tags, uploaded photos and blobs belong to one household: lists, search and the sync feed show only the
+  caller's household, and an id of another household answers **404** `not_found` like an unknown id (a capture id
+  already used by another household: 409 `capture_id_taken`). User names stay unique across households. Users who
+  register with the registration code or are enrolled by the admin belong to the default household.
 - **ETags:** a recipe's `ETag` is its head revision id, a blob's is its SHA-256. Caddy's gzip turns the header into
   a weak `W/"…"` tag; the server accepts both forms, and the app builds `If-Match` from `headRevisionId` rather than
   from the header.
@@ -244,6 +249,7 @@ Uploads a capture; `captureId` is generated on the phone and must equal `capture
 - **400** `invalid_capture`: schema errors, a missing or duplicate part, or a URL/body `captureId` mismatch.
   `details` lists every problem. The phone shows them and does not retry.
 - **400** `invalid_request`: `Translate-To` is not a language code.
+- **409** `capture_id_taken`: another household already stored a capture with this id.
 - **413** `payload_too_large`.
 
 ### GET /v1/captures/{captureId}
@@ -548,11 +554,13 @@ orientation is not applied: the app sends the photo upright). The recipe shows i
 - **400** `invalid_image`: not a readable image. **400** `invalid_request`: no part `image`.
 - **413** `payload_too_large`.
 
-A revision whose `images` contain a `blob:` entry that is not an uploaded photo answers **400** `unknown_photo`.
+A revision whose `images` contain a `blob:` entry that is not a photo uploaded in the caller's household answers
+**400** `unknown_photo`.
 
 ### GET /v1/blobs/{sha256}
 
-A capture body or attachment, or an uploaded photo, by its SHA-256 (e.g. `thumbnailBlob`).
+A capture body or attachment, a photo found in one, an uploaded photo or a recipe thumbnail of the caller's
+household, by its SHA-256 (e.g. `thumbnailBlob`). Another household's blob answers 404.
 
 - **200** the content, with the attachment's media type (`application/json` for a capture body) and
   `Cache-Control: private, max-age=31536000, immutable`.
@@ -569,8 +577,8 @@ HTTP Basic with the admin credentials; see Conventions for the rate limit.
 
 ### POST /v1/admin/enrollments
 
-Body `{"userName": "Ania", "deviceName": "Pixel 9"}` (each 1–100 characters). The user is created when the name is
-new; shared devices are users too (e.g. `"userName": "Tablet"`). It works without a password and beyond the user
+Body `{"userName": "Ania", "deviceName": "Pixel 9"}` (each 1–100 characters). The user is created in the default
+household when the name is new (an existing user keeps its household); shared devices are users too (e.g. `"userName": "Tablet"`). It works without a password and beyond the user
 limit; the user can set a password later with `PUT /v1/me/password`. A device name the user already has replaces that
 device's token, as a login does.
 
@@ -579,8 +587,8 @@ device's token, as a login does.
 
 ### GET /v1/admin/devices
 
-**200** `[{deviceId, deviceName, userId, userName, createdAt, lastUsedAt, revokedAt}]`: devices of users that are not
-deleted.
+**200** `[{deviceId, deviceName, userId, userName, householdId, createdAt, lastUsedAt, revokedAt}]`: devices of users
+that are not deleted, of all households.
 
 ### DELETE /v1/admin/devices/{deviceId}
 

@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.gatar.recipedealer.auth.DevicePrincipal;
+import com.gatar.recipedealer.household.Households;
 import com.gatar.recipedealer.processing.ExtractionStatsService;
 import com.gatar.recipedealer.web.ETags;
 
@@ -36,9 +37,11 @@ public class RecipeController {
     private final RecipeQueryService queries;
     private final RecipeEditService edits;
     private final ExtractionStatsService stats;
+    private final Households households;
 
     public RecipeController(CandidateService candidates, RecipeQueryService queries, RecipeEditService edits,
-                            ExtractionStatsService stats) {
+                            ExtractionStatsService stats, Households households) {
+        this.households = households;
         this.candidates = candidates;
         this.queries = queries;
         this.edits = edits;
@@ -47,33 +50,38 @@ public class RecipeController {
 
     /** Extraction runs of the recipe's captures with token usage and cost ("Statystyki dla nerdów"). */
     @GetMapping("/{recipeId}/extraction-stats")
-    public ExtractionStatsService.RecipeStats extractionStats(@PathVariable UUID recipeId) {
+    public ExtractionStatsService.RecipeStats extractionStats(@PathVariable UUID recipeId, @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireRecipe(device.householdId(), recipeId);
         return stats.forRecipe(recipeId);
     }
 
     @GetMapping("/candidates")
     public List<CandidateService.Candidate> candidates(@RequestParam(required = false) String title,
-                                                       @RequestParam(required = false) String url) {
-        return candidates.find(title, url);
+                                                       @RequestParam(required = false) String url,
+                                                       @AuthenticationPrincipal DevicePrincipal device) {
+        return candidates.find(device.householdId(), title, url);
     }
 
     /** Sync feed for the offline cache. */
     @GetMapping
     public RecipeQueryService.SyncPage sync(@RequestParam(required = false) Instant updatedSince,
                                             @RequestParam(required = false) String cursor,
-                                            @RequestParam(required = false) Integer limit) {
-        return queries.sync(updatedSince, cursor, limit);
+                                            @RequestParam(required = false) Integer limit,
+                                            @AuthenticationPrincipal DevicePrincipal device) {
+        return queries.sync(device.householdId(), updatedSince, cursor, limit);
     }
 
     @GetMapping("/search")
-    public List<RecipeQueryService.SearchHit> search(@RequestParam String q) {
-        return queries.search(q);
+    public List<RecipeQueryService.SearchHit> search(@RequestParam String q, @AuthenticationPrincipal DevicePrincipal device) {
+        return queries.search(device.householdId(), q);
     }
 
     /** The head revision; {@code ETag} is the head revision id (used as {@code If-Match} when saving an edit). */
     @GetMapping("/{recipeId}")
     public ResponseEntity<RecipeQueryService.RecipeView> recipe(@PathVariable UUID recipeId,
-                                                                @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
+                                                                @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch,
+                                                                @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireRecipe(device.householdId(), recipeId);
         var view = queries.recipe(recipeId);
         String etag = ETags.of(view.headRevisionId());
         if (ETags.matches(ifNoneMatch, view.headRevisionId())) {
@@ -83,7 +91,8 @@ public class RecipeController {
     }
 
     @GetMapping("/{recipeId}/revisions")
-    public List<RecipeQueryService.RevisionView> revisions(@PathVariable UUID recipeId) {
+    public List<RecipeQueryService.RevisionView> revisions(@PathVariable UUID recipeId, @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireRecipe(device.householdId(), recipeId);
         return queries.revisions(recipeId);
     }
 
@@ -97,6 +106,7 @@ public class RecipeController {
                                                               @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
                                                               @RequestBody JsonNode recipe,
                                                               @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireRecipe(device.householdId(), recipeId);
         var outcome = edits.save(recipeId, lockId, ifMatch, recipe, device);
         var view = queries.recipe(recipeId);
         var response = outcome.created()
@@ -110,7 +120,9 @@ public class RecipeController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID recipeId,
                        @RequestHeader(value = LOCK_ID, required = false) UUID lockId,
-                       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch) {
+                       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+                       @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireRecipe(device.householdId(), recipeId);
         edits.delete(recipeId, lockId, ifMatch);
     }
 }

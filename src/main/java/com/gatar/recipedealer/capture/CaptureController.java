@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.gatar.recipedealer.auth.DevicePrincipal;
+import com.gatar.recipedealer.household.Households;
 import com.gatar.recipedealer.processing.LlmExtractionService;
 import com.gatar.recipedealer.recipe.ResolutionRepository.Action;
 import com.gatar.recipedealer.recipe.ResolutionService;
@@ -42,9 +43,11 @@ public class CaptureController {
     private final ResolutionService resolutions;
     private final LlmExtractionService llm;
     private final CaptureDeletionService deletions;
+    private final Households households;
 
     public CaptureController(CaptureIngestService ingest, CaptureQueryService queries, ResolutionService resolutions,
-                             LlmExtractionService llm, CaptureDeletionService deletions) {
+                             LlmExtractionService llm, CaptureDeletionService deletions, Households households) {
+        this.households = households;
         this.ingest = ingest;
         this.queries = queries;
         this.resolutions = resolutions;
@@ -78,14 +81,16 @@ public class CaptureController {
     }
 
     @GetMapping("/{captureId}")
-    public CaptureView get(@PathVariable UUID captureId) {
+    public CaptureView get(@PathVariable UUID captureId, @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireCapture(device.householdId(), captureId);
         return queries.view(captureId);
     }
 
-    /** The inbox; by default captures waiting for a decision or for attention. */
+    /** The household's inbox; by default captures waiting for a decision or for attention. */
     @GetMapping
-    public List<CaptureView> list(@RequestParam(defaultValue = "needs_decision,needs_attention") String status) {
-        return queries.inbox(parseStatuses(status));
+    public List<CaptureView> list(@RequestParam(defaultValue = "needs_decision,needs_attention") String status,
+                                  @AuthenticationPrincipal DevicePrincipal device) {
+        return queries.inbox(device.householdId(), parseStatuses(status));
     }
 
     /** {@code tags}: tag ids for the new recipe (NEW only). */
@@ -95,20 +100,24 @@ public class CaptureController {
     @PutMapping("/{captureId}/extracted/{index}/resolution")
     public CaptureView resolve(@PathVariable UUID captureId, @PathVariable int index,
                                @RequestBody ResolutionRequest request, @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireCapture(device.householdId(), captureId);
         resolutions.request(captureId, index, request.action(), request.recipeId(), request.tags(), device);
         return queries.view(captureId);
     }
 
     /** Runs the extraction cascade again from the first LLM step; 202 with the capture (now {@code processing}). */
     @PostMapping("/{captureId}/llm-extraction")
-    public ResponseEntity<CaptureView> forceLlmExtraction(@PathVariable UUID captureId) {
+    public ResponseEntity<CaptureView> forceLlmExtraction(@PathVariable UUID captureId,
+                                                          @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireCapture(device.householdId(), captureId);
         llm.force(captureId);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(queries.view(captureId));
     }
 
     /** Deletes a capture that never became a recipe, with its attachments; 409 once it did or while it is processed. */
     @DeleteMapping("/{captureId}")
-    public ResponseEntity<Void> delete(@PathVariable UUID captureId) {
+    public ResponseEntity<Void> delete(@PathVariable UUID captureId, @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireCapture(device.householdId(), captureId);
         deletions.delete(captureId);
         return ResponseEntity.noContent().build();
     }

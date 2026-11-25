@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.gatar.recipedealer.auth.DevicePrincipal;
+import com.gatar.recipedealer.household.Households;
 
 /** Edit lease: acquire when the editor opens, heartbeat every 2 minutes, release on cancel. */
 @RestController
@@ -20,25 +21,31 @@ import com.gatar.recipedealer.auth.DevicePrincipal;
 public class LockController {
 
     private final LockService locks;
+    private final Households households;
 
-    public LockController(LockService locks) {
+    public LockController(LockService locks, Households households) {
+        this.households = households;
         this.locks = locks;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public LockService.Lease acquire(@PathVariable UUID recipeId, @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireRecipe(device.householdId(), recipeId);
         return locks.acquire(recipeId, device);
     }
 
     @PutMapping("/{lockId}")
-    public LockService.Lease heartbeat(@PathVariable UUID recipeId, @PathVariable UUID lockId) {
+    public LockService.Lease heartbeat(@PathVariable UUID recipeId, @PathVariable UUID lockId,
+                                     @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireRecipe(device.householdId(), recipeId);
         return locks.heartbeat(recipeId, lockId);
     }
 
     @DeleteMapping("/{lockId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void release(@PathVariable UUID recipeId, @PathVariable UUID lockId) {
+    public void release(@PathVariable UUID recipeId, @PathVariable UUID lockId, @AuthenticationPrincipal DevicePrincipal device) {
+        households.requireRecipe(device.householdId(), recipeId);
         locks.release(recipeId, lockId);
     }
 }

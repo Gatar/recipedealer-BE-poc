@@ -24,6 +24,7 @@ import com.gatar.recipedealer.capture.CaptureRepository.NewAttachment;
 import com.gatar.recipedealer.capture.CaptureRepository.NewCapture;
 import com.gatar.recipedealer.common.Hashing;
 import com.gatar.recipedealer.processing.JobQueue;
+import com.gatar.recipedealer.web.ApiException;
 
 import jakarta.servlet.http.Part;
 import tools.jackson.databind.JsonNode;
@@ -73,7 +74,7 @@ public class CaptureIngestService {
             body = in.readAllBytes();
         }
 
-        if (alreadyStored(captureId, body)) {
+        if (alreadyStored(captureId, body, device.householdId())) {
             return false;
         }
 
@@ -98,7 +99,7 @@ public class CaptureIngestService {
 
         JsonNode source = json.get("source");
         var capture = new NewCapture(captureId, OffsetDateTime.parse(json.get("capturedAt").asString()),
-                device.userId(), device.deviceId(), json.get("schemaVersion").asInt(), bodyBlob, body,
+                device.householdId(), device.userId(), device.deviceId(), json.get("schemaVersion").asInt(), bodyBlob, body,
                 source.get("type").asString(), textOrNull(source.get("url")), attachments, translateTo);
         Boolean created = tx.execute(status -> {
             boolean inserted = captures.insert(capture);
@@ -109,7 +110,7 @@ public class CaptureIngestService {
         });
         if (!Boolean.TRUE.equals(created)) {
             // Lost a race with a concurrent upload of the same capture.
-            alreadyStored(captureId, body);
+            alreadyStored(captureId, body, device.householdId());
             return false;
         }
         log.info("Accepted capture {} ({}, {} attachments) from device {}", captureId, capture.sourceType(),
@@ -117,8 +118,13 @@ public class CaptureIngestService {
         return true;
     }
 
-    private boolean alreadyStored(UUID captureId, byte[] body) {
-        return captures.findBodySha256(captureId).map(storedSha -> {
+    /** 409 {@code capture_id_taken} when another household already stored a capture with this id. */
+    private boolean alreadyStored(UUID captureId, byte[] body, UUID householdId) {
+        return captures.findStored(captureId).map(stored -> {
+            if (!stored.householdId().equals(householdId)) {
+                throw ApiException.conflict("capture_id_taken", "capture id " + captureId + " is already used");
+            }
+            String storedSha = stored.bodySha256();
             String newSha = Hashing.sha256Hex(body);
             if (!storedSha.equals(newSha)) {
                 log.warn("Capture {} uploaded again with a different body (stored {}, new {}); keeping the stored one",

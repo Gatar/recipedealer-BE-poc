@@ -50,12 +50,15 @@ public class AutoTagRepository {
 
     /**
      * Requests tagging of a recipe the capture just created, and queues the capture's tagging job. Nothing happens
-     * when tagging or the LLM is disabled, or the catalog has no tags. Runs in the transaction that holds the
-     * capture's state lock.
+     * when tagging or the LLM is disabled, or the recipe's household catalog has no tags. Runs in the transaction that
+     * holds the capture's state lock.
      */
     public void request(UUID recipeId, UUID captureId) {
         if (!properties.enabled() || !llm.enabled()
-                || !jdbc.sql("SELECT EXISTS (SELECT 1 FROM tag)").query(Boolean.class).single()) {
+                || !jdbc.sql("""
+                                SELECT EXISTS (SELECT 1 FROM tag t JOIN recipe r ON r.household_id = t.household_id
+                                               WHERE r.id = :recipeId)""")
+                        .param("recipeId", recipeId).query(Boolean.class).single()) {
             return;
         }
         int inserted = jdbc.sql("""

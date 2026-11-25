@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 import javax.imageio.ImageIO;
@@ -68,8 +69,10 @@ public class PhotoService {
         jdbc.sql("INSERT INTO blob (sha256, size_bytes) VALUES (:sha256, :size) ON CONFLICT (sha256) DO NOTHING")
                 .param("sha256", blob.sha256()).param("size", blob.sizeBytes()).update();
         jdbc.sql("""
-                        INSERT INTO user_photo (blob_sha256, width, height, device_id) VALUES (:sha256, :width, :height, :device)
-                        ON CONFLICT (blob_sha256) DO NOTHING""")
+                        INSERT INTO user_photo (household_id, blob_sha256, width, height, device_id)
+                        VALUES (:household, :sha256, :width, :height, :device)
+                        ON CONFLICT (household_id, blob_sha256) DO NOTHING""")
+                .param("household", device.householdId())
                 .param("sha256", blob.sha256()).param("width", photo.getWidth()).param("height", photo.getHeight())
                 .param("device", device.deviceId())
                 .update();
@@ -80,32 +83,44 @@ public class PhotoService {
 
     /**
      * Deletes uploaded photos older than {@code olderThan} that nothing refers to: no revision (so an older version
-     * can still be restored), candidate or capture names it in {@code images}, and no recipe shows it (e.g. a photo
-     * picked in the editor and then cancelled). The files go after the commit.
+     * can still be restored), candidate or capture of its household names it in {@code images}, and no recipe shows
+     * it (e.g. a photo picked in the editor and then cancelled). The files go after the commit.
      *
      * @return the deleted blobs
      */
     public List<String> deleteUnused(Duration olderThan) {
         List<String> unused = tx.execute(status -> {
-            List<String> candidates = jdbc.sql("""
-                            SELECT u.blob_sha256 FROM user_photo u
+            record Row(UUID household, String sha256) {
+            }
+            List<Row> candidates = jdbc.sql("""
+                            SELECT u.household_id, u.blob_sha256 FROM user_photo u
                             WHERE u.created_at < now() - make_interval(secs => :seconds)
-                              AND NOT EXISTS (SELECT 1 FROM recipe_revision v
-                                              WHERE v.content->'images' @> jsonb_build_array('blob:' || u.blob_sha256))
-                              AND NOT EXISTS (SELECT 1 FROM recipe_candidate c
-                                              WHERE c.content->'images' @> jsonb_build_array('blob:' || u.blob_sha256))
+                              AND NOT EXISTS (SELECT 1 FROM recipe_revision v JOIN recipe r ON r.id = v.recipe_id
+                                              WHERE r.household_id = u.household_id
+                                                AND v.content->'images' @> jsonb_build_array('blob:' || u.blob_sha256))
+                              AND NOT EXISTS (SELECT 1 FROM recipe_candidate c JOIN processing_run pr ON pr.id = c.run_id
+                                                  JOIN capture cc ON cc.id = pr.capture_id
+                                              WHERE cc.household_id = u.household_id
+                                                AND c.content->'images' @> jsonb_build_array('blob:' || u.blob_sha256))
                               AND NOT EXISTS (SELECT 1 FROM capture c
-                                              WHERE c.body->'recipe'->'images' @> jsonb_build_array('blob:' || u.blob_sha256))
-                              AND NOT EXISTS (SELECT 1 FROM recipe r WHERE r.thumbnail_blob = u.blob_sha256)
+                                              WHERE c.household_id = u.household_id
+                                                AND c.body->'recipe'->'images' @> jsonb_build_array('blob:' || u.blob_sha256))
+                              AND NOT EXISTS (SELECT 1 FROM recipe r
+                                              WHERE r.household_id = u.household_id AND r.thumbnail_blob = u.blob_sha256)
                             FOR UPDATE OF u SKIP LOCKED""")
                     .param("seconds", (double) olderThan.toSeconds())
-                    .query(String.class).list();
+                    .query((rs, n) -> new Row(rs.getObject("household_id", UUID.class), rs.getString("blob_sha256")))
+                    .list();
             List<String> deleted = new ArrayList<>();
-            for (String sha256 : candidates) {
-                jdbc.sql("DELETE FROM user_photo WHERE blob_sha256 = :sha256").param("sha256", sha256).update();
-                // the same content can also be an attachment or another photo: then only the user_photo row goes
+            for (Row row : candidates) {
+                String sha256 = row.sha256();
+                jdbc.sql("DELETE FROM user_photo WHERE household_id = :household AND blob_sha256 = :sha256")
+                        .param("household", row.household()).param("sha256", sha256).update();
+                // the same content can also be an attachment, another household's photo or a thumbnail: then only the
+                // user_photo row goes
                 if (jdbc.sql("""
                                 DELETE FROM blob b WHERE b.sha256 = :sha256
+                                    AND NOT EXISTS (SELECT 1 FROM user_photo WHERE blob_sha256 = b.sha256)
                                     AND NOT EXISTS (SELECT 1 FROM capture WHERE body_sha256 = b.sha256)
                                     AND NOT EXISTS (SELECT 1 FROM capture_attachment WHERE blob_sha256 = b.sha256)
                                     AND NOT EXISTS (SELECT 1 FROM pdf_image WHERE blob_sha256 = b.sha256)
@@ -131,15 +146,17 @@ public class PhotoService {
         return unused;
     }
 
-    /** 400 {@code unknown_photo} if a {@code blob:} entry of {@code images} is not an uploaded photo. */
-    public void requireKnown(JsonNode recipe) {
+    /** 400 {@code unknown_photo} if a {@code blob:} entry of {@code images} is not a photo uploaded in the household. */
+    public void requireKnown(UUID household, JsonNode recipe) {
         JsonNode images = recipe.path("images");
         for (JsonNode image : images) {
             String value = image.isString() ? image.asString().strip() : "";
             if (!value.startsWith(REF_PREFIX)) {
                 continue;
             }
-            boolean known = REF.matcher(value).matches() && jdbc.sql("SELECT EXISTS (SELECT 1 FROM user_photo WHERE blob_sha256 = :sha256)")
+            boolean known = REF.matcher(value).matches() && jdbc.sql("""
+                            SELECT EXISTS (SELECT 1 FROM user_photo WHERE household_id = :household AND blob_sha256 = :sha256)""")
+                    .param("household", household)
                     .param("sha256", value.substring(REF_PREFIX.length())).query(Boolean.class).single();
             if (!known) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "unknown_photo", "no uploaded photo " + value);

@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.gatar.recipedealer.common.Ids;
 import com.gatar.recipedealer.common.Jdbc;
+import com.gatar.recipedealer.household.Households;
 import com.gatar.recipedealer.web.ApiException;
 
 /** Self-service accounts: registration with the household code, password login, password change. */
@@ -68,10 +69,12 @@ public class AccountService {
             throw ApiException.conflict("user_limit_reached", "the limit of " + registration.maxUsers() + " users is reached");
         }
         UUID userId = jdbc.sql("""
-                        INSERT INTO app_user (id, name, password_hash) VALUES (:id, :name, :hash)
+                        INSERT INTO app_user (id, name, password_hash, household_id) VALUES (:id, :name, :hash, :household)
                         ON CONFLICT (lower(name)) WHERE deleted_at IS NULL DO NOTHING
                         RETURNING id""")
                 .param("id", Ids.newId())
+                // the registration code is the default household's code
+                .param("household", Households.DEFAULT_ID)
                 .param("name", userName.strip())
                 .param("hash", hash)
                 .query(UUID.class)

@@ -34,8 +34,9 @@ public class RecipeRepository {
                               boolean needsReview) {
     }
 
-    public void insertRecipe(UUID id) {
-        jdbc.sql("INSERT INTO recipe (id) VALUES (:id)").param("id", id).update();
+    public void insertRecipe(UUID id, UUID householdId) {
+        jdbc.sql("INSERT INTO recipe (id, household_id) VALUES (:id, :household)")
+                .param("id", id).param("household", householdId).update();
     }
 
     public Optional<Head> lockHead(UUID recipeId) {
@@ -135,7 +136,8 @@ public class RecipeRepository {
                                                    lower(c.source_type))
                                    FROM capture c WHERE c.id = :captureId) END,
                                thumbnail_blob = coalesce(
-                                   (SELECT u.blob_sha256 FROM user_photo u WHERE 'blob:' || u.blob_sha256 = CAST(:mainImage AS text)),
+                                   (SELECT u.blob_sha256 FROM user_photo u
+                                    WHERE u.household_id = r.household_id AND 'blob:' || u.blob_sha256 = CAST(:mainImage AS text)),
                                    (SELECT w.blob_sha256 FROM web_image w WHERE w.url = CAST(:imageUrl AS text)),
                                    %s),
                                updated_at = now()
@@ -172,6 +174,7 @@ public class RecipeRepository {
                             SELECT r.id, coalesce(
                                        (SELECT u.blob_sha256 FROM recipe_revision h JOIN user_photo u
                                             ON 'blob:' || u.blob_sha256 = trim(h.content->'images'->>0)
+                                               AND u.household_id = r.household_id
                                         WHERE h.id = r.head_revision_id),
                                        (SELECT w.blob_sha256 FROM recipe_revision h JOIN web_image w
                                             ON w.url = trim(h.content->'images'->>0)
@@ -187,12 +190,13 @@ public class RecipeRepository {
                 .update();
     }
 
-    /** Attaches a key unless it already exists; returns the recipe that owns the key afterwards. */
-    public UUID addKey(RecipeKey key, UUID recipeId, UUID captureId) {
+    /** Attaches a key unless the household has it already; returns the recipe that owns the key afterwards. */
+    public UUID addKey(UUID householdId, RecipeKey key, UUID recipeId, UUID captureId) {
         jdbc.sql("""
-                        INSERT INTO recipe_key (kind, value, raw_value, normalizer_version, recipe_id, capture_id)
-                        VALUES (:kind, :value, :raw, :version, :recipeId, :captureId)
-                        ON CONFLICT (kind, value) DO NOTHING""")
+                        INSERT INTO recipe_key (household_id, kind, value, raw_value, normalizer_version, recipe_id, capture_id)
+                        VALUES (:household, :kind, :value, :raw, :version, :recipeId, :captureId)
+                        ON CONFLICT (household_id, kind, value) DO NOTHING""")
+                .param("household", householdId)
                 .param("kind", key.kind().name())
                 .param("value", key.value())
                 .param("raw", key.rawValue())
@@ -200,7 +204,8 @@ public class RecipeRepository {
                 .param("recipeId", recipeId)
                 .param("captureId", captureId)
                 .update();
-        return jdbc.sql("SELECT recipe_id FROM recipe_key WHERE kind = :kind AND value = :value")
+        return jdbc.sql("SELECT recipe_id FROM recipe_key WHERE household_id = :household AND kind = :kind AND value = :value")
+                .param("household", householdId)
                 .param("kind", key.kind().name())
                 .param("value", key.value())
                 .query(UUID.class)

@@ -46,7 +46,7 @@ public class RecipeEditService {
             throw ApiException.badRequest("body must be a recipe object");
         }
         validator.validateRecipe(recipe);
-        photos.requireKnown(recipe);
+        photos.requireKnown(device.householdId(), recipe);
         var head = recipes.lockHead(recipeId).orElseThrow(() -> new NotFoundException("recipe " + recipeId + " not found"));
         if (head.deleted() || head.mergedInto() != null) {
             throw new ApiException(HttpStatus.GONE, "recipe_gone", "recipe " + recipeId + " was deleted or merged");

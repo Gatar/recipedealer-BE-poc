@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.gatar.recipedealer.common.Hashing;
 import com.gatar.recipedealer.common.Ids;
 import com.gatar.recipedealer.common.Jdbc;
+import com.gatar.recipedealer.household.Households;
 
 @Service
 public class DeviceTokenService {
@@ -30,19 +31,29 @@ public class DeviceTokenService {
     public record Enrollment(String token, UUID userId, UUID deviceId) {
     }
 
-    public record Device(UUID deviceId, String deviceName, UUID userId, String userName,
+    public record Device(UUID deviceId, String deviceName, UUID userId, String userName, UUID householdId,
                          Instant createdAt, Instant lastUsedAt, Instant revokedAt) {
     }
 
-    /** Creates the user if needed and issues a token for its device (see {@link #issue}). */
+    /** Admin enrollment: a new user goes to the default household. */
     @Transactional
     public Enrollment enroll(String userName, String deviceName) {
+        return enroll(Households.DEFAULT_ID, userName, deviceName);
+    }
+
+    /**
+     * Creates the user in the household if needed and issues a token for its device (see {@link #issue}); an
+     * existing user keeps its household.
+     */
+    @Transactional
+    public Enrollment enroll(UUID householdId, String userName, String deviceName) {
         UUID userId = jdbc.sql("""
-                        INSERT INTO app_user (id, name) VALUES (:id, :name)
+                        INSERT INTO app_user (id, name, household_id) VALUES (:id, :name, :household)
                         ON CONFLICT (lower(name)) WHERE deleted_at IS NULL DO UPDATE SET name = app_user.name
                         RETURNING id""")
                 .param("id", Ids.newId())
                 .param("name", userName.strip())
+                .param("household", householdId)
                 .query(UUID.class).single();
         return issue(userId, deviceName);
     }
@@ -91,12 +102,12 @@ public class DeviceTokenService {
             return Optional.empty();
         }
         var principal = jdbc.sql("""
-                        SELECT d.id AS device_id, d.device_name, u.id AS user_id, u.name AS user_name
+                        SELECT d.id AS device_id, d.device_name, u.id AS user_id, u.name AS user_name, u.household_id
                         FROM device_token d JOIN app_user u ON u.id = d.user_id
                         WHERE d.token_hash = :hash AND d.revoked_at IS NULL AND u.deleted_at IS NULL""")
                 .param("hash", Hashing.sha256(token))
                 .query((rs, n) -> new DevicePrincipal(Jdbc.uuid(rs, "user_id"), rs.getString("user_name"),
-                        Jdbc.uuid(rs, "device_id"), rs.getString("device_name")))
+                        Jdbc.uuid(rs, "device_id"), rs.getString("device_name"), Jdbc.uuid(rs, "household_id")))
                 .optional();
         principal.ifPresent(p -> jdbc.sql("""
                         UPDATE device_token SET last_used_at = now()
@@ -108,12 +119,14 @@ public class DeviceTokenService {
 
     public List<Device> devices() {
         return jdbc.sql("""
-                        SELECT d.id, d.device_name, d.created_at, d.last_used_at, d.revoked_at, u.id AS user_id, u.name AS user_name
+                        SELECT d.id, d.device_name, d.created_at, d.last_used_at, d.revoked_at, u.id AS user_id, u.name AS user_name,
+                               u.household_id
                         FROM device_token d JOIN app_user u ON u.id = d.user_id
                         WHERE u.deleted_at IS NULL
                         ORDER BY u.name, d.created_at""")
                 .query((rs, n) -> new Device(Jdbc.uuid(rs, "id"), rs.getString("device_name"), Jdbc.uuid(rs, "user_id"),
-                        rs.getString("user_name"), Jdbc.instant(rs, "created_at"), Jdbc.instant(rs, "last_used_at"),
+                        rs.getString("user_name"), Jdbc.uuid(rs, "household_id"), Jdbc.instant(rs, "created_at"),
+                        Jdbc.instant(rs, "last_used_at"),
                         Jdbc.instant(rs, "revoked_at")))
                 .list();
     }

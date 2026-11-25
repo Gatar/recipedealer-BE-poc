@@ -10,7 +10,7 @@ import org.springframework.stereotype.Service;
 
 import com.gatar.recipedealer.common.Jdbc;
 
-/** Existing recipes a new capture may belong to: exact canonical URL first, then similar titles. */
+/** Existing recipes of a household a new capture may belong to: exact canonical URL first, then similar titles. */
 @Service
 public class CandidateService {
 
@@ -30,12 +30,14 @@ public class CandidateService {
 
     private static final String COLUMNS = "r.id, r.title, r.source_summary, r.thumbnail_blob, r.updated_at";
 
-    public List<Candidate> find(String title, String url) {
+    public List<Candidate> find(UUID householdId, String title, String url) {
         List<Candidate> result = new ArrayList<>();
         UrlNormalizer.normalize(url).ifPresent(normalized -> result.addAll(jdbc.sql("""
                         SELECT %s, 1.0 AS score FROM recipe_key k JOIN recipe r ON r.id = k.recipe_id
-                        WHERE k.kind = 'CANONICAL_URL' AND k.value = :url AND r.deleted_at IS NULL AND r.merged_into IS NULL"""
+                        WHERE k.household_id = :household AND k.kind = 'CANONICAL_URL' AND k.value = :url
+                          AND r.deleted_at IS NULL AND r.merged_into IS NULL"""
                         .formatted(COLUMNS))
+                .param("household", householdId)
                 .param("url", normalized)
                 .query((rs, n) -> map(rs, MatchReason.URL))
                 .list()));
@@ -44,9 +46,10 @@ public class CandidateService {
             jdbc.sql("""
                             SELECT %s, similarity(r.title_norm, q.t) AS score
                             FROM recipe r, (SELECT rd_normalize(:title) AS t) q
-                            WHERE r.title_norm %% q.t AND r.deleted_at IS NULL AND r.merged_into IS NULL
+                            WHERE r.household_id = :household AND r.title_norm %% q.t AND r.deleted_at IS NULL AND r.merged_into IS NULL
                             ORDER BY score DESC, r.updated_at DESC
                             LIMIT :limit""".formatted(COLUMNS))
+                    .param("household", householdId)
                     .param("title", title)
                     .param("limit", LIMIT)
                     .query((rs, n) -> map(rs, MatchReason.TITLE))
@@ -58,12 +61,13 @@ public class CandidateService {
     }
 
     /** Whether a capture could belong to an existing recipe: one of its identity keys, its URL or a similar title. */
-    public boolean hasMatch(String title, String url, List<RecipeKey> keys) {
+    public boolean hasMatch(UUID householdId, String title, String url, List<RecipeKey> keys) {
         for (RecipeKey key : keys) {
             boolean owned = jdbc.sql("""
                             SELECT EXISTS (SELECT 1 FROM recipe_key k JOIN recipe r ON r.id = k.recipe_id
-                                           WHERE k.kind = :kind AND k.value = :value
+                                           WHERE k.household_id = :household AND k.kind = :kind AND k.value = :value
                                              AND r.deleted_at IS NULL AND r.merged_into IS NULL)""")
+                    .param("household", householdId)
                     .param("kind", key.kind().name())
                     .param("value", key.value())
                     .query(Boolean.class)
@@ -72,7 +76,7 @@ public class CandidateService {
                 return true;
             }
         }
-        return !find(title, url).isEmpty();
+        return !find(householdId, title, url).isEmpty();
     }
 
     private static Candidate map(java.sql.ResultSet rs, MatchReason reason) throws java.sql.SQLException {

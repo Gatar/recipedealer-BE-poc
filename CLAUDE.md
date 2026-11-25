@@ -39,7 +39,7 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Self-service: `POST /v1/auth/register` (needs the household `REGISTRATION_CODE`; without it registration is
   disabled) and `POST /v1/auth/login`; both return a new device token. Admin enrollment stays, without a password and
   beyond the limit.
-- At most `MAX_USERS` (10) users in total. Passwords: no rules, bcrypt, at most 72 bytes (rejected, not truncated).
+- At most `MAX_USERS` (10) users in total (all households). Passwords: no rules, bcrypt, at most 72 bytes (rejected, not truncated).
 - Tokens do not expire. A device = user + device name (case ignored): logging in (or enrolling) again with the same
   name replaces that device's token and keeps its id; a new name adds a device.
 - `DELETE /v1/admin/users/{userId}` is a soft delete (`deleted_at`), also for users with history: devices revoked,
@@ -47,6 +47,21 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Users without a password (admin-enrolled) set one with `PUT /v1/me/password` and their token; changing it needs
   the current password.
 - Failed attempts: 5 per user name / 15 min, 50 in total / hour (in memory, reset on restart).
+
+## Households (agreed 2026-11-25, stage 1 of the multi-household plan)
+- One household per user (`app_user.household_id`, role `owner | member`; existing users = owners of the default
+  household `Households.DEFAULT_ID`, V19). User names stay unique across households (login by name alone).
+- `household_id` on `capture`, `recipe`, `recipe_key`, `tag_category` / `tag` / `recipe_tag`, `user_photo`; everything
+  else follows its capture or recipe. Identity keys, tag names and uploaded photos are per household (the same page or
+  picture in two households = two recipes / two photo rows, one blob file).
+- Every device endpoint scopes by `DevicePrincipal.householdId`: ids from the path go through
+  `Households.requireCapture` / `requireRecipe` (404 like an unknown id), lists / search / sync / candidates filter in
+  SQL, background jobs take the household of their capture or recipe. `GET /v1/blobs` serves only blobs the
+  household uses (`BlobController.VISIBLE`). A capture id another household used is 409 `capture_id_taken`.
+- `HouseholdIsolationTest` covers every device endpoint and fails when a new one is added without a case.
+- Registration code and admin enrollment add users to the default household; household registration, invitations,
+  self-service devices and the limits (user, 2026-11-25: for now at most 20 households, 40 recipes each) come in
+  stage 2.
 
 ## Before the beta (agreed 2026-10-27)
 - Auto-NEW: processing stores NEW (capture's user/device, no tags) for a candidate without a decision that matches

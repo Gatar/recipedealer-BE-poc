@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.gatar.recipedealer.auth.DevicePrincipal;
 import com.gatar.recipedealer.capture.CaptureStatus;
+import com.gatar.recipedealer.household.Households;
 import com.gatar.recipedealer.processing.ProcessingRepository;
 import com.gatar.recipedealer.processing.ProcessingRepository.RunStatus;
 import com.gatar.recipedealer.processing.StoredCandidate;
@@ -44,10 +45,12 @@ public class ResolutionService {
     private final AutoTagRepository autoTags;
     private final AutoTranslationRepository translations;
     private final CandidateService matches;
+    private final Households households;
 
     public ResolutionService(ProcessingRepository processing, ResolutionRepository resolutions, RecipeRepository recipes,
                              RevisionService revisions, TagService tags, AutoTagRepository autoTags,
-                             AutoTranslationRepository translations, CandidateService matches) {
+                             AutoTranslationRepository translations, CandidateService matches, Households households) {
+        this.households = households;
         this.processing = processing;
         this.resolutions = resolutions;
         this.recipes = recipes;
@@ -77,9 +80,10 @@ public class ResolutionService {
         if (action == Action.UPDATE && tagIds != null && !tagIds.isEmpty()) {
             throw ApiException.badRequest("tags can be chosen only with NEW");
         }
-        List<String> chosen = List.copyOf(tags.requireExisting(tagIds));
+        List<String> chosen = List.copyOf(tags.requireExisting(device.householdId(), tagIds));
         processing.lockState(captureId);
-        if (action == Action.UPDATE && recipes.liveTarget(targetRecipeId).isEmpty()) {
+        if (action == Action.UPDATE && (!households.hasRecipe(device.householdId(), targetRecipeId)
+                || recipes.liveTarget(targetRecipeId).isEmpty())) {
             throw ApiException.conflict("recipe_gone", "recipe " + targetRecipeId + " does not exist or was deleted");
         }
 
@@ -115,9 +119,10 @@ public class ResolutionService {
     public void decideUnmatchedAsNew(UUID captureId, List<StoredCandidate> candidates, String url, UUID userId,
                                      UUID deviceId) {
         var decided = resolutions.forCapture(captureId).stream().map(Resolution::index).collect(Collectors.toSet());
+        UUID householdId = households.ofCapture(captureId);
         for (StoredCandidate candidate : candidates) {
             if (!decided.contains(candidate.index())
-                    && !matches.hasMatch(RecipeContent.title(candidate.content()), url, candidate.keys())) {
+                    && !matches.hasMatch(householdId, RecipeContent.title(candidate.content()), url, candidate.keys())) {
                 resolutions.upsertPending(captureId, candidate.index(), Action.NEW, null, List.of(), userId, deviceId);
             }
         }
@@ -162,9 +167,10 @@ public class ResolutionService {
                 captureId, resolution.userId(), resolution.deviceId(), candidate.needsReview());
         RevisionService.Outcome outcome;
         List<String> messages = new ArrayList<>();
+        UUID householdId = households.ofCapture(captureId);
         if (resolution.action() == Action.NEW) {
-            outcome = revisions.createRecipe(content);
-            tags.assignToNewRecipe(outcome.recipeId(), resolution.tags());
+            outcome = revisions.createRecipe(householdId, content);
+            tags.assignToNewRecipe(householdId, outcome.recipeId(), resolution.tags());
             // a translated recipe is tagged after its translation (AutoTranslator)
             boolean translating = translations.request(outcome.recipeId(), captureId, candidate.content(),
                     resolution.tags().isEmpty());
@@ -206,8 +212,9 @@ public class ResolutionService {
     /** Adds the capture's keys to the recipe; keys owned by another recipe are reported, not moved. */
     private List<String> attachKeys(UUID captureId, StoredCandidate candidate, UUID recipeId) {
         List<String> messages = new ArrayList<>();
+        UUID householdId = households.ofRecipe(recipeId);
         for (RecipeKey key : candidate.keys()) {
-            UUID owner = recipes.addKey(key, recipeId, captureId);
+            UUID owner = recipes.addKey(householdId, key, recipeId, captureId);
             if (!owner.equals(recipeId)) {
                 messages.add("The %s %s already belongs to recipe \"%s\" (%s)."
                         .formatted(key.kind() == RecipeKey.Kind.CANONICAL_URL ? "URL" : "JSON-LD id", key.value(),

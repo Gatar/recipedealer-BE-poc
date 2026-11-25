@@ -50,9 +50,9 @@ public class RevisionService {
     public record Outcome(UUID recipeId, UUID revisionId, boolean created, boolean headMoved) {
     }
 
-    public Outcome createRecipe(Content content) {
+    public Outcome createRecipe(UUID householdId, Content content) {
         UUID recipeId = Ids.newId();
-        recipes.insertRecipe(recipeId);
+        recipes.insertRecipe(recipeId, householdId);
         UUID revisionId = insert(recipeId, null, content, RecipeContent.contentHash(content.recipe()));
         recipes.moveHead(recipeId, revisionId, content.recipe(), content.captureId());
         return new Outcome(recipeId, revisionId, true, true);

@@ -24,26 +24,31 @@ public class CaptureRepository {
                                 Integer width, Integer height) {
     }
 
-    public record NewCapture(UUID id, OffsetDateTime capturedAt, UUID userId, UUID deviceId, int schemaVersion,
-                             BlobRef body, byte[] bodyJson, String sourceType, String sourceUrl,
+    public record NewCapture(UUID id, OffsetDateTime capturedAt, UUID householdId, UUID userId, UUID deviceId,
+                             int schemaVersion, BlobRef body, byte[] bodyJson, String sourceType, String sourceUrl,
                              List<NewAttachment> attachments, String translateTo) {
     }
 
-    public Optional<String> findBodySha256(UUID captureId) {
-        return jdbc.sql("SELECT body_sha256 FROM capture WHERE id = :id").param("id", captureId)
-                .query(String.class).optional();
+    public record Stored(String bodySha256, UUID householdId) {
+    }
+
+    public Optional<Stored> findStored(UUID captureId) {
+        return jdbc.sql("SELECT body_sha256, household_id FROM capture WHERE id = :id").param("id", captureId)
+                .query((rs, n) -> new Stored(rs.getString("body_sha256"), rs.getObject("household_id", UUID.class)))
+                .optional();
     }
 
     /** Inserts the capture, its attachments and its state; returns false if the capture id already exists. */
     public boolean insert(NewCapture capture) {
         insertBlob(capture.body());
         int inserted = jdbc.sql("""
-                        INSERT INTO capture (id, captured_at, user_id, device_id, schema_version, body_sha256, body,
-                                             source_type, source_url, translate_to)
-                        VALUES (:id, :capturedAt, :userId, :deviceId, :schemaVersion, :bodySha256, CAST(:body AS jsonb),
-                                :sourceType, :sourceUrl, :translateTo)
+                        INSERT INTO capture (id, captured_at, household_id, user_id, device_id, schema_version, body_sha256,
+                                             body, source_type, source_url, translate_to)
+                        VALUES (:id, :capturedAt, :household, :userId, :deviceId, :schemaVersion, :bodySha256,
+                                CAST(:body AS jsonb), :sourceType, :sourceUrl, :translateTo)
                         ON CONFLICT (id) DO NOTHING""")
                 .param("id", capture.id())
+                .param("household", capture.householdId())
                 .param("capturedAt", capture.capturedAt())
                 .param("userId", capture.userId())
                 .param("deviceId", capture.deviceId())

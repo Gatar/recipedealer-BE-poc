@@ -36,8 +36,9 @@ public class RecipeQueryService {
     /** Tag ids ({@code category:tag}) of recipe {@code r} in catalog order. */
     private static final String TAGS = """
             ARRAY(SELECT rt.category || ':' || rt.tag
-                  FROM recipe_tag rt JOIN tag t ON t.category = rt.category AND t.name = rt.tag
-                       JOIN tag_category c ON c.name = rt.category
+                  FROM recipe_tag rt
+                       JOIN tag t ON t.household_id = rt.household_id AND t.category = rt.category AND t.name = rt.tag
+                       JOIN tag_category c ON c.household_id = rt.household_id AND c.name = rt.category
                   WHERE rt.recipe_id = r.id ORDER BY c.position, t.position) AS tags""";
 
     private final JdbcClient jdbc;
@@ -140,7 +141,7 @@ public class RecipeQueryService {
      * the start of the oldest transaction that is still open; such changes come in a later sync instead of being
      * skipped by the cursor.
      */
-    public SyncPage sync(Instant updatedSince, String cursor, Integer limit) {
+    public SyncPage sync(UUID householdId, Instant updatedSince, String cursor, Integer limit) {
         int pageSize = limit == null ? DEFAULT_PAGE_SIZE : Math.clamp(limit, 1, MAX_PAGE_SIZE);
         Instant afterTime;
         UUID afterId;
@@ -164,9 +165,10 @@ public class RecipeQueryService {
                         SELECT r.id, r.updated_at, r.deleted_at IS NOT NULL AS deleted, r.merged_into, r.head_revision_id,
                                h.needs_review, h.content, r.source_summary, r.thumbnail_blob, %s
                         FROM recipe r JOIN recipe_revision h ON h.id = r.head_revision_id
-                        WHERE (r.updated_at, r.id) > (:afterTime, :afterId) AND r.updated_at < :horizon
+                        WHERE r.household_id = :household AND (r.updated_at, r.id) > (:afterTime, :afterId) AND r.updated_at < :horizon
                         ORDER BY r.updated_at, r.id
                         LIMIT :limit""".formatted(TAGS))
+                .param("household", householdId)
                 .param("afterTime", OffsetDateTime.ofInstant(afterTime, ZoneOffset.UTC))
                 .param("afterId", afterId)
                 .param("horizon", horizon)
@@ -180,7 +182,7 @@ public class RecipeQueryService {
     }
 
     /** Title and ingredient search tolerant to missing diacritics and small typos. */
-    public List<SearchHit> search(String query) {
+    public List<SearchHit> search(UUID householdId, String query) {
         if (query == null || query.isBlank()) {
             return List.of();
         }
@@ -191,9 +193,10 @@ public class RecipeQueryService {
                         SELECT r.id, r.title, word_similarity(q.t, r.search_text) AS score, r.source_summary,
                                r.thumbnail_blob, r.updated_at
                         FROM recipe r, (SELECT rd_normalize(:q) AS t) q
-                        WHERE q.t <% r.search_text AND r.deleted_at IS NULL AND r.merged_into IS NULL
+                        WHERE r.household_id = :household AND q.t <% r.search_text AND r.deleted_at IS NULL AND r.merged_into IS NULL
                         ORDER BY score DESC, word_similarity(q.t, r.title_norm) DESC, r.updated_at DESC
                         LIMIT :limit""")
+                .param("household", householdId)
                 .param("q", query)
                 .param("limit", SEARCH_LIMIT)
                 .query((rs, n) -> new SearchHit(Jdbc.uuid(rs, "id"), rs.getString("title"),

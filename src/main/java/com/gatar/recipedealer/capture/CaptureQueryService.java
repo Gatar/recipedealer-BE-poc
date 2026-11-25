@@ -48,13 +48,14 @@ public class CaptureQueryService {
                 .orElseThrow(() -> new NotFoundException("capture " + captureId + " not found"));
     }
 
-    /** Captures in the given states, newest first. */
-    public List<CaptureView> inbox(Set<CaptureStatus> statuses) {
+    /** The household's captures in the given states, newest first. */
+    public List<CaptureView> inbox(UUID householdId, Set<CaptureStatus> statuses) {
         if (statuses.isEmpty()) {
             throw ApiException.badRequest("status must not be empty");
         }
         var values = statuses.stream().map(CaptureStatus::value).toList();
-        return rows("s.status IN (:statuses)", Map.of("statuses", values)).stream().map(this::toView).toList();
+        return rows("c.household_id = :household AND s.status IN (:statuses)",
+                Map.of("household", householdId, "statuses", values)).stream().map(this::toView).toList();
     }
 
     private List<Row> rows(String condition, Map<String, ?> params) {

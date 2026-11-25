@@ -63,7 +63,10 @@ public class AutoTagger {
 
     public void run(UUID captureId) {
         List<Pending> pending = taggings.pending(captureId);
-        List<TagPrompt.Choice> catalog = tags.catalog().categories().stream()
+        // the capture's recipes are in the capture's household, so its catalog is theirs
+        UUID household = jdbc.sql("SELECT household_id FROM capture WHERE id = :id").param("id", captureId)
+                .query(UUID.class).single();
+        List<TagPrompt.Choice> catalog = tags.catalog(household).categories().stream()
                 .flatMap(category -> category.tags().stream()
                         .map(tag -> new TagPrompt.Choice(tag.id(), category.title(), tag.title())))
                 .toList();

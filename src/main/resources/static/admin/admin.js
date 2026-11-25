@@ -5,6 +5,7 @@
 // absolute: a page opened as https://user:pass@host/admin/ would otherwise resolve credentials into fetch URLs
 const API = location.origin + '/v1/admin';
 const state = {households: [], loaded: {}};
+const DEFAULT_HOUSEHOLD = '00000000-0000-7000-8000-000000000001';
 
 // --- helpers ---
 
@@ -125,6 +126,19 @@ function renderHouseholds() {
             await run(() => api('/households/' + h.householdId, {method: 'PATCH', body}), 'Zapisano dom „' + body.name + '”.');
             await refresh('households');
         }}, 'Zapisz');
+        const invite = el('button', {class: 'secondary', onclick: async () => {
+            const invitation = await run(() => api('/households/' + h.householdId + '/invitations', {method: 'POST'}));
+            const box = document.getElementById('invitation-result');
+            box.textContent = 'Kod zaproszenia do „' + h.name + '”: ' + invitation.code + ' (ważny do '
+                + date(invitation.expiresAt) + ', jednorazowy)';
+            box.classList.remove('hidden');
+        }}, 'Zaproszenie');
+        const remove = h.householdId === DEFAULT_HOUSEHOLD ? null : el('button', {class: 'danger', onclick: async () => {
+            if (!confirm('Usunąć dom „' + h.name + '” razem z jego ' + h.users + ' użytkownikami? Ich urządzenia przestaną działać, '
+                + 'dane zostaną na serwerze.')) return;
+            await run(() => api('/households/' + h.householdId, {method: 'DELETE'}), 'Usunięto dom „' + h.name + '”.');
+            await refresh('households');
+        }}, 'Usuń');
         return el('tr', {class: h.deletedAt ? 'deleted' : null},
             el('td', {}, name, el('div', {class: 'muted'}, short(h.householdId))),
             el('td', {class: 'num'}, h.recipes, ' / ', limit),
@@ -134,7 +148,7 @@ function renderHouseholds() {
             el('td', {class: 'num'}, h.devices),
             el('td', {class: 'num'}, h.captures),
             el('td', {class: 'nowrap'}, date(h.createdAt), h.deletedAt ? el('div', {}, 'usunięty ' + date(h.deletedAt)) : null),
-            el('td', {class: 'actions'}, h.deletedAt ? null : save));
+            el('td', {class: 'actions'}, h.deletedAt ? null : [save, invite, remove]));
     });
     table('households-table', ['Nazwa', ['Przepisy / limit', 'num'], ['Claude w tym miesiącu / budżet USD', 'num'],
         ['Użytk.', 'num'], ['Urządz.', 'num'], ['Zrzuty', 'num'], 'Utworzony', ''], rows);
@@ -182,12 +196,30 @@ async function loadUsers() {
                 await run(() => api('/users/' + u.userId, {method: 'DELETE'}), 'Usunięto ' + u.userName + '.');
                 await refresh('users');
             }}, 'Usuń');
+            const name = el('input', {class: 'name', value: u.userName, maxlength: '100', disabled: !!u.deletedAt});
+            const rename = el('button', {class: 'secondary', onclick: async () => {
+                const userName = name.value.trim();
+                if (userName === u.userName) return;
+                await run(() => api('/users/' + u.userId, {method: 'PATCH', body: {userName}}),
+                    'Nowa nazwa: ' + userName + ' (loguje się nią od teraz).');
+                await refresh('users');
+            }}, 'Zapisz nazwę');
+            const password = el('button', {class: 'secondary', onclick: () => askPassword(u)}, 'Hasło…');
             return el('tr', {class: u.deletedAt ? 'deleted' : null},
-                el('td', {}, u.userName), el('td', {}, u.householdName), el('td', {}, role),
+                el('td', {}, u.deletedAt ? u.userName : name), el('td', {}, u.householdName), el('td', {}, role),
                 el('td', {}, u.hasPassword ? 'tak' : 'nie'), el('td', {class: 'num'}, u.devices),
                 el('td', {class: 'nowrap'}, date(u.lastUsedAt)), el('td', {class: 'nowrap'}, date(u.createdAt)),
-                el('td', {class: 'actions'}, u.deletedAt ? 'usunięty ' + date(u.deletedAt) : remove));
+                el('td', {class: 'actions'}, u.deletedAt ? 'usunięty ' + date(u.deletedAt) : [rename, password, remove]));
         }));
+}
+
+let passwordUser = null;
+
+function askPassword(user) {
+    passwordUser = user;
+    document.getElementById('password-user').textContent = user.userName;
+    document.getElementById('password-form').reset();
+    document.getElementById('password-dialog').showModal();
 }
 
 async function loadDevices() {
@@ -201,8 +233,16 @@ async function loadDevices() {
             await run(() => api('/devices/' + d.deviceId, {method: 'DELETE'}), 'Odwołano urządzenie.');
             await refresh('devices');
         }}, 'Odwołaj');
+        const name = el('input', {class: 'name', value: d.deviceName, maxlength: '100'});
+        const rename = el('button', {class: 'secondary', onclick: async () => {
+            const deviceName = name.value.trim();
+            if (deviceName === d.deviceName) return;
+            await run(() => api('/devices/' + d.deviceId, {method: 'PATCH', body: {deviceName}}), 'Zmieniono nazwę urządzenia.');
+            await refresh('devices');
+        }}, 'Zapisz nazwę');
         return el('tr', {class: d.revokedAt ? 'deleted' : null},
-            el('td', {}, d.deviceName), el('td', {}, d.userName), el('td', {}, householdName(d.householdId)),
+            el('td', {}, d.revokedAt ? d.deviceName : [name, ' ', rename]), el('td', {}, d.userName),
+            el('td', {}, householdName(d.householdId)),
             el('td', {class: 'nowrap'}, date(d.createdAt)), el('td', {class: 'nowrap'}, date(d.lastUsedAt)),
             el('td', {class: 'actions'}, d.revokedAt ? 'odwołane ' + date(d.revokedAt) : revoke));
     }));
@@ -412,6 +452,31 @@ document.getElementById('enroll-form').addEventListener('submit', async e => {
     box.classList.remove('hidden');
     e.target.reset();
     await refresh('users');
+});
+
+document.getElementById('password-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    if (form.get('password') !== form.get('repeat')) {
+        toast('Hasła się różnią.', true);
+        return;
+    }
+    await run(() => api('/users/' + passwordUser.userId, {method: 'PATCH', body: {password: form.get('password')}}),
+        'Ustawiono nowe hasło dla ' + passwordUser.userName + '.');
+    document.getElementById('password-dialog').close();
+    await refresh('users');
+});
+document.querySelector('#password-dialog [data-close]').addEventListener('click',
+    () => document.getElementById('password-dialog').close());
+
+document.getElementById('household-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const number = key => form.get(key) === '' ? null : Number(form.get(key));
+    const body = {name: form.get('name').trim(), recipeLimit: number('recipeLimit'), llmBudgetUsd: number('llmBudgetUsd')};
+    await run(() => api('/households', {method: 'POST', body}), 'Utworzono dom „' + body.name + '”. Teraz utwórz zaproszenie.');
+    e.target.reset();
+    await refresh('households');
 });
 
 document.getElementById('backup-form').addEventListener('submit', async e => {

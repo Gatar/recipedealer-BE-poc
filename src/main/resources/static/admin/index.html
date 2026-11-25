@@ -42,6 +42,18 @@
         <p class="muted">Puste pole limitu lub budżetu = bez limitu. Niższy limit niczego nie usuwa, tylko blokuje nowe przepisy.
             Budżet liczy się w miesiącu kalendarzowym (UTC).</p>
         <div class="table-wrap"><table id="households-table"></table></div>
+        <p id="invitation-result" class="token hidden"></p>
+        <div class="panel">
+            <h2>Nowy dom</h2>
+            <p class="muted">Dom bez użytkowników, poza limitem domów. Daj komuś kod zaproszenia: pierwsza osoba,
+                która dołączy, zostaje właścicielem.</p>
+            <form id="household-form" class="inline-form">
+                <input name="name" placeholder="Nazwa domu" required maxlength="100">
+                <label class="muted">Limit przepisów <input name="recipeLimit" type="number" min="0" step="1" class="small" value="40" placeholder="bez limitu"></label>
+                <label class="muted">Budżet USD / mies. <input name="llmBudgetUsd" type="number" min="0" step="0.01" class="small" value="1.00" placeholder="bez limitu"></label>
+                <button type="submit">Utwórz dom</button>
+            </form>
+        </div>
     </section>
 
     <section id="users" class="tab hidden">
@@ -126,6 +138,19 @@
         <button class="close" data-close>Zamknij</button>
     </div>
     <div id="recipe-body"></div>
+</dialog>
+
+<dialog id="password-dialog">
+    <form id="password-form" class="dialog-form">
+        <h2>Nowe hasło: <span id="password-user"></span></h2>
+        <p class="muted">Zalogowane urządzenia działają dalej. Hasło: niepuste, najwyżej 72 bajty.</p>
+        <input type="password" name="password" placeholder="Nowe hasło" required autocomplete="new-password">
+        <input type="password" name="repeat" placeholder="Powtórz hasło" required autocomplete="new-password">
+        <div class="actions">
+            <button type="submit">Ustaw hasło</button>
+            <button type="button" class="secondary" data-close>Anuluj</button>
+        </div>
+    </form>
 </dialog>
 
 <script src="admin.js"></script>

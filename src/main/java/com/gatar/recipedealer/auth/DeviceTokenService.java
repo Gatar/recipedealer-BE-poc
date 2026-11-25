@@ -15,6 +15,7 @@ import com.gatar.recipedealer.common.Hashing;
 import com.gatar.recipedealer.common.Ids;
 import com.gatar.recipedealer.common.Jdbc;
 import com.gatar.recipedealer.household.Households;
+import com.gatar.recipedealer.web.ApiException;
 
 @Service
 public class DeviceTokenService {
@@ -129,6 +130,27 @@ public class DeviceTokenService {
                         Jdbc.instant(rs, "last_used_at"),
                         Jdbc.instant(rs, "revoked_at")))
                 .list();
+    }
+
+    /**
+     * Admin: renames a device; 409 {@code device_exists} when the user has another device with that name (case
+     * ignored: a login with the name would take that device over). Returns false if the device does not exist.
+     */
+    @Transactional
+    public boolean rename(UUID deviceId, String deviceName) {
+        String name = deviceName == null ? "" : deviceName.strip();
+        if (name.isEmpty() || name.length() > 100) {
+            throw ApiException.badRequest("deviceName must be 1-100 characters");
+        }
+        boolean taken = jdbc.sql("""
+                        SELECT EXISTS (SELECT 1 FROM device_token d JOIN device_token me ON me.user_id = d.user_id
+                                       WHERE me.id = :id AND d.id <> :id AND lower(d.device_name) = lower(:name))""")
+                .param("id", deviceId).param("name", name).query(Boolean.class).single();
+        if (taken) {
+            throw ApiException.conflict("device_exists", "the user already has a device named " + name);
+        }
+        return jdbc.sql("UPDATE device_token SET device_name = :name WHERE id = :id")
+                .param("name", name).param("id", deviceId).update() > 0;
     }
 
     /** Revokes a device token; returns false if the device does not exist. Revoking twice is a no-op. */

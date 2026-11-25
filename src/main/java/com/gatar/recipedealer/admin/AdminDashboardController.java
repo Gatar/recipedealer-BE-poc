@@ -24,7 +24,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.transaction.annotation.Transactional;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.gatar.recipedealer.auth.AccountService;
 import com.gatar.recipedealer.blob.BlobStore;
 import com.gatar.recipedealer.common.Jdbc;
 import com.gatar.recipedealer.household.HouseholdService;
@@ -47,11 +50,13 @@ public class AdminDashboardController {
     private final JdbcClient jdbc;
     private final JsonMapper jsonMapper;
     private final BlobStore blobs;
+    private final AccountService accounts;
 
-    public AdminDashboardController(JdbcClient jdbc, JsonMapper jsonMapper, BlobStore blobs) {
+    public AdminDashboardController(JdbcClient jdbc, JsonMapper jsonMapper, BlobStore blobs, AccountService accounts) {
         this.jdbc = jdbc;
         this.jsonMapper = jsonMapper;
         this.blobs = blobs;
+        this.accounts = accounts;
     }
 
     // --- overview ---
@@ -167,19 +172,35 @@ public class AdminDashboardController {
                 .list();
     }
 
-    public record RoleRequest(String role) {
+    /** Any of the fields; a missing one stays as it is. */
+    public record UserUpdate(String role, String userName, String password) {
     }
 
-    /** The admin may set any role, also leaving a household without an owner. */
+    /**
+     * Changes a live user: role (the admin may also leave a household without an owner), name (unique across
+     * households) and password (no current password needed). In one transaction: all or nothing.
+     */
     @PatchMapping("/users/{userId}")
-    public AdminUser setRole(@PathVariable UUID userId, @RequestBody RoleRequest request) {
-        if (request == null || (!HouseholdService.OWNER.equals(request.role()) && !HouseholdService.MEMBER.equals(request.role()))) {
-            throw ApiException.badRequest("role must be owner or member");
+    @Transactional
+    public AdminUser updateUser(@PathVariable UUID userId, @RequestBody UserUpdate request) {
+        if (request == null || (request.role() == null && request.userName() == null && request.password() == null)) {
+            throw ApiException.badRequest("give role, userName or password");
         }
-        int updated = jdbc.sql("UPDATE app_user SET role = :role WHERE id = :id AND deleted_at IS NULL")
-                .param("role", request.role()).param("id", userId).update();
-        if (updated == 0) {
-            throw new NotFoundException("user " + userId + " not found");
+        if (request.role() != null) {
+            if (!HouseholdService.OWNER.equals(request.role()) && !HouseholdService.MEMBER.equals(request.role())) {
+                throw ApiException.badRequest("role must be owner or member");
+            }
+            int updated = jdbc.sql("UPDATE app_user SET role = :role WHERE id = :id AND deleted_at IS NULL")
+                    .param("role", request.role()).param("id", userId).update();
+            if (updated == 0) {
+                throw new NotFoundException("user " + userId + " not found");
+            }
+        }
+        if (request.userName() != null) {
+            accounts.rename(userId, request.userName());
+        }
+        if (request.password() != null) {
+            accounts.resetPassword(userId, request.password());
         }
         return users(null, false).stream().filter(u -> u.userId().equals(userId)).findFirst()
                 .orElseThrow(() -> new NotFoundException("user " + userId + " not found"));

@@ -116,7 +116,10 @@ public class HouseholdService {
         return accounts.createUser(householdId, OWNER, userName, password, deviceName);
     }
 
-    /** A new member with an invitation code; the code then stops working. */
+    /**
+     * A new member with an invitation code; the code then stops working. Joining a household without an owner (one the
+     * admin created) makes the new user its owner.
+     */
     @Transactional
     public Session join(String invitationCode, String userName, String password, String deviceName) {
         rateLimiter.check(INVITATION_KEY);
@@ -135,7 +138,9 @@ public class HouseholdService {
             throw new ApiException(HttpStatus.FORBIDDEN, "invalid_invitation_code",
                     "the invitation code is wrong, used or expired");
         }
-        Session session = accounts.createUser(invitation.get().householdId(), MEMBER, userName, password, deviceName);
+        lockHousehold(invitation.get().householdId());
+        String role = owners(invitation.get().householdId()) == 0 ? OWNER : MEMBER;
+        Session session = accounts.createUser(invitation.get().householdId(), role, userName, password, deviceName);
         jdbc.sql("UPDATE household_invitation SET used_at = now(), used_by = :user WHERE id = :id")
                 .param("user", session.userId()).param("id", invitation.get().id()).update();
         return session;
@@ -199,16 +204,49 @@ public class HouseholdService {
     @Transactional
     public void deleteHousehold(DevicePrincipal caller) {
         requireOwner(caller);
-        if (Households.DEFAULT_ID.equals(caller.householdId())) {
+        deleteHousehold(caller.householdId());
+    }
+
+    /**
+     * Deletes a household with all its users (also the admin; never the default household); deleting a deleted one
+     * again changes nothing. 404 for an unknown household.
+     */
+    @Transactional
+    public void deleteHousehold(UUID householdId) {
+        if (Households.DEFAULT_ID.equals(householdId)) {
             throw ApiException.conflict("default_household", "the default household cannot be deleted");
         }
-        lockHousehold(caller.householdId());
+        boolean exists = jdbc.sql("SELECT EXISTS (SELECT 1 FROM household WHERE id = :id)").param("id", householdId)
+                .query(Boolean.class).single();
+        if (!exists) {
+            throw new NotFoundException("household " + householdId + " not found");
+        }
+        lockHousehold(householdId);
         for (UUID user : jdbc.sql("SELECT id FROM app_user WHERE household_id = :id AND deleted_at IS NULL")
-                .param("id", caller.householdId()).query(UUID.class).list()) {
+                .param("id", householdId).query(UUID.class).list()) {
             tokens.deleteUser(user);
         }
-        revokeInvitations(caller.householdId());
-        jdbc.sql("UPDATE household SET deleted_at = now() WHERE id = :id").param("id", caller.householdId()).update();
+        revokeInvitations(householdId);
+        jdbc.sql("UPDATE household SET deleted_at = coalesce(deleted_at, now()) WHERE id = :id")
+                .param("id", householdId).update();
+    }
+
+    /**
+     * A household the admin creates, without users and beyond the household limit; the first user who joins it with
+     * an invitation becomes its owner. {@code recipeLimit}, {@code llmBudgetUsd}: null = no limit.
+     */
+    @Transactional
+    public UUID createHouseholdAsAdmin(String householdName, Integer recipeLimit, BigDecimal llmBudgetUsd) {
+        UUID householdId = Ids.newId();
+        jdbc.sql("INSERT INTO household (id, name, recipe_limit, llm_budget_usd) VALUES (:id, :name, :limit, :budget)")
+                .param("id", householdId).param("name", name(householdName)).param("limit", recipeLimit)
+                .param("budget", llmBudgetUsd).update();
+        return householdId;
+    }
+
+    /** The limits a household created through the app starts with. */
+    public HouseholdProperties properties() {
+        return properties;
     }
 
     // --- members and devices ---
@@ -286,6 +324,20 @@ public class HouseholdService {
     @Transactional
     public InvitationView invite(DevicePrincipal caller) {
         requireOwner(caller);
+        return createInvitation(caller.householdId(), caller.userId(), caller.userName());
+    }
+
+    /**
+     * A new invitation code of a household; {@code createdBy} null: the admin. 404 for a household that does not
+     * exist or was deleted.
+     */
+    @Transactional
+    public InvitationView createInvitation(UUID householdId, UUID createdBy, String createdByName) {
+        boolean live = jdbc.sql("SELECT EXISTS (SELECT 1 FROM household WHERE id = :id AND deleted_at IS NULL)")
+                .param("id", householdId).query(Boolean.class).single();
+        if (!live) {
+            throw new NotFoundException("household " + householdId + " not found");
+        }
         StringBuilder code = new StringBuilder(CODE_LENGTH);
         for (int i = 0; i < CODE_LENGTH; i++) {
             code.append(CODE_ALPHABET.charAt(random.nextInt(CODE_ALPHABET.length())));
@@ -295,25 +347,31 @@ public class HouseholdService {
                         INSERT INTO household_invitation (id, household_id, code_hash, created_by, expires_at)
                         VALUES (:id, :household, :hash, :user, now() + make_interval(secs => :seconds))
                         RETURNING expires_at""")
-                .param("id", id).param("household", caller.householdId())
-                .param("hash", Hashing.sha256(code.toString())).param("user", caller.userId())
+                .param("id", id).param("household", householdId)
+                .param("hash", Hashing.sha256(code.toString())).param("user", createdBy)
                 .param("seconds", (double) properties.invitationTtl().toSeconds())
                 .query((rs, n) -> Jdbc.instant(rs, "expires_at")).single();
         String shown = code.substring(0, CODE_LENGTH / 2) + "-" + code.substring(CODE_LENGTH / 2);
-        return new InvitationView(id, shown, caller.userName(), Instant.now(), expiresAt);
+        return new InvitationView(id, shown, createdByName, Instant.now(), expiresAt);
     }
 
     /** Invitations that still work, newest first (owner only). */
     @Transactional(readOnly = true)
     public List<InvitationView> invitations(DevicePrincipal caller) {
         requireOwner(caller);
+        return invitations(caller.householdId());
+    }
+
+    /** A household's invitations that still work, newest first; {@code createdBy} "admin" for the admin's. */
+    @Transactional(readOnly = true)
+    public List<InvitationView> invitations(UUID householdId) {
         return jdbc.sql("""
-                        SELECT i.id, u.name, i.created_at, i.expires_at
-                        FROM household_invitation i JOIN app_user u ON u.id = i.created_by
+                        SELECT i.id, coalesce(u.name, 'admin') AS name, i.created_at, i.expires_at
+                        FROM household_invitation i LEFT JOIN app_user u ON u.id = i.created_by
                         WHERE i.household_id = :household AND i.used_at IS NULL AND i.revoked_at IS NULL
                           AND i.expires_at > now()
                         ORDER BY i.created_at DESC""")
-                .param("household", caller.householdId())
+                .param("household", householdId)
                 .query((rs, n) -> new InvitationView(Jdbc.uuid(rs, "id"), null, rs.getString("name"),
                         Jdbc.instant(rs, "created_at"), Jdbc.instant(rs, "expires_at")))
                 .list();
@@ -322,10 +380,16 @@ public class HouseholdService {
     @Transactional
     public void revokeInvitation(DevicePrincipal caller, UUID invitationId) {
         requireOwner(caller);
+        revokeInvitation(caller.householdId(), invitationId);
+    }
+
+    /** 404 unless the invitation belongs to the household. */
+    @Transactional
+    public void revokeInvitation(UUID householdId, UUID invitationId) {
         int updated = jdbc.sql("""
                         UPDATE household_invitation SET revoked_at = coalesce(revoked_at, now())
                         WHERE id = :id AND household_id = :household""")
-                .param("id", invitationId).param("household", caller.householdId()).update();
+                .param("id", invitationId).param("household", householdId).update();
         if (updated == 0) {
             throw new NotFoundException("invitation " + invitationId + " not found");
         }

@@ -279,7 +279,8 @@ Creates a household with its owner and the owner's first device. No token needed
 
 ### POST /v1/auth/join
 
-Joins the household of an invitation code as a member. No token needed.
+Joins the household of an invitation code as a member; into a household without an owner (one the admin created)
+as its owner. No token needed.
 
 ```json
 {"invitationCode": "ABCD-EFGH", "userName": "Bartek", "password": "…", "deviceName": "Pixel 9"}
@@ -748,10 +749,46 @@ only stops new recipes.
 - **400** `invalid_request`: a name of 0 or over 100 characters, a limit or budget that is not a number ≥ 0.
 - **404**.
 
+### POST /v1/admin/households
+
+Creates a household without users, also beyond `MAX_HOUSEHOLDS`. Body `{"name": "Znajomi", "recipeLimit": 40,
+"llmBudgetUsd": 1.00}`: `name` required; a missing limit or budget gets the default of a household created in the app
+(`DEFAULT_RECIPE_LIMIT`, `DEFAULT_LLM_BUDGET_USD`), `null` means no limit. The first user who joins it with an
+invitation (`POST /v1/admin/households/{householdId}/invitations`) becomes its owner.
+
+- **201** the household, as in `GET /v1/admin/households`.
+- **400** `invalid_request`.
+
+### DELETE /v1/admin/households/{householdId}
+
+Deletes a household with all its users, as `DELETE /v1/household` by its owner. **204**, also when already deleted ·
+**404** · **409** `default_household`.
+
+### POST /v1/admin/households/{householdId}/invitations
+
+A single-use invitation code to the household, as an owner's (`POST /v1/household/invitations`), `createdBy`
+`"admin"`. **201** with the code (shown only here) · **404** unknown or deleted household.
+
+### GET /v1/admin/households/{householdId}/invitations
+
+**200** the household's invitations that still work, without codes (also those of its owners) · **404**.
+
+### DELETE /v1/admin/households/{householdId}/invitations/{invitationId}
+
+Revokes an invitation. **204** · **404** (also an invitation of another household).
+
 ### GET /v1/admin/devices
 
 **200** `[{deviceId, deviceName, userId, userName, householdId, createdAt, lastUsedAt, revokedAt}]`: devices of users
 that are not deleted, of all households.
+
+### PATCH /v1/admin/devices/{deviceId}
+
+Renames a device. Body `{"deviceName": "Pixel 9"}` (1–100 characters, unique among the user's devices, case ignored:
+a login with that name takes the device over).
+
+- **200** the device, as in `GET /v1/admin/devices`.
+- **400** `invalid_request` · **404** · **409** `device_exists`.
 
 ### DELETE /v1/admin/devices/{deviceId}
 
@@ -797,8 +834,15 @@ Query `householdId` (optional), `deleted` (default `false`: only live users). **
 
 ### PATCH /v1/admin/users/{userId}
 
-Body `{"role": "owner | member"}`. The admin may also leave a household without an owner. **200** the user, as in
-`GET /v1/admin/users` · **400** another role · **404** unknown or deleted user.
+Body: any of `{"role": "owner | member", "userName": "Ania", "password": "…"}`; a missing field stays as it is, all
+changes in one transaction. The admin may also leave a household without an owner. `userName` (1–100 characters)
+must not be another live user's (case ignored); the user logs in with it from now on, its devices keep working. A
+`password` follows the account rules (not empty, at most 72 bytes) and needs no current password (a forgotten one).
+
+- **200** the user, as in `GET /v1/admin/users`.
+- **400** `invalid_request`: no field, another role, a bad name or password.
+- **404**: unknown or deleted user.
+- **409** `user_exists`.
 
 ### GET /v1/admin/recipes
 

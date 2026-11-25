@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -56,6 +57,19 @@ public class AdminController {
     @GetMapping("/devices")
     public List<Device> devices() {
         return tokens.devices();
+    }
+
+    public record DeviceUpdate(String deviceName) {
+    }
+
+    /** Renames a device (unique per user, case ignored). */
+    @PatchMapping("/devices/{deviceId}")
+    public Device rename(@PathVariable UUID deviceId, @RequestBody DeviceUpdate request) {
+        if (!tokens.rename(deviceId, request == null ? null : request.deviceName())) {
+            throw new NotFoundException("device " + deviceId + " not found");
+        }
+        return tokens.devices().stream().filter(d -> d.deviceId().equals(deviceId)).findFirst()
+                .orElseThrow(() -> new NotFoundException("device " + deviceId + " not found"));
     }
 
     @DeleteMapping("/devices/{deviceId}")

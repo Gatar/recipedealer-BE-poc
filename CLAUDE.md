@@ -90,7 +90,14 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - `https://<server>/admin/`: static page (`static/admin/`: `index.html`, `admin.css`, `admin.js`, vanilla JS, Polish UI)
   in the admin security chain; the browser's Basic login prompt, no login form. User, 2026-11-25: views of everything
   but **edits only through specific actions** (no raw table editor): household name / recipe limit / Claude budget,
-  user role, user deletion, device revocation, enrollment, re-read with AI, backups, API key check.
+  user role, user deletion, device revocation, enrollment, re-read with AI, backups, API key check. Added the same
+  day (user: admin actions, not content): user name and password, device name, creating and deleting households,
+  invitation codes to any household. Content edits (recipes, tags, captures) are deliberately not in the dashboard.
+- A household the admin creates has no users; the first user who joins it with an invitation becomes its owner
+  (`HouseholdService.join`: no live owner → owner). Admin invitations have `created_by` NULL (V21), shown as "admin".
+- Admin Basic login: the admin chain has its own `DaoAuthenticationProvider` with `VerifiedPasswordCache` (a matching
+  password is remembered as SHA-256 of password + hash for 15 min): the server's hash is bcrypt cost 14 (~1 s), and
+  checking it on every request made the dashboard crawl (one check per thumbnail).
 - Read endpoints across households in `AdminDashboardController` (`/v1/admin/overview`, `users`, `recipes`,
   `captures`, `llm-costs`, `blobs/{sha256}`), at most 500 rows each.
 - `AdminAuthRateLimiter` counts only failed logins with credentials (a browser's first request has none).

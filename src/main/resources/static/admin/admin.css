@@ -114,6 +114,11 @@ button:disabled { opacity: .45; cursor: default; }
 .progress > div { height: 100%; background: var(--accent); }
 .progress.over > div { background: var(--danger); }
 
+.dialog-form { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; }
+.dialog-form h2 { margin: 0; font-size: 16px; }
+.dialog-form p { margin: 0; }
+#password-dialog { width: min(420px, 94vw); }
+
 dialog { border: 0; border-radius: 10px; padding: 0; width: min(900px, 94vw); max-height: 90vh; }
 dialog::backdrop { background: rgba(0, 0, 0, .35); }
 .dialog-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fff; }

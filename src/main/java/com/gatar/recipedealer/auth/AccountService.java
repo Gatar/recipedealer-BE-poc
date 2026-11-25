@@ -16,6 +16,7 @@ import com.gatar.recipedealer.common.Ids;
 import com.gatar.recipedealer.common.Jdbc;
 import com.gatar.recipedealer.household.Households;
 import com.gatar.recipedealer.web.ApiException;
+import com.gatar.recipedealer.web.NotFoundException;
 
 /** Self-service accounts: registration with the household code, password login, password change. */
 @Service
@@ -126,6 +127,39 @@ public class AccountService {
                 .param("hash", hash)
                 .param("id", caller.userId())
                 .update();
+    }
+
+    /**
+     * Admin: renames a live user; 409 {@code user_exists} for a name another live user has (case ignored), 404 for an
+     * unknown or deleted user.
+     */
+    @Transactional
+    public void rename(UUID userId, String userName) {
+        String name = userName == null ? "" : userName.strip();
+        if (name.isEmpty() || name.length() > 100) {
+            throw ApiException.badRequest("userName must be 1-100 characters");
+        }
+        boolean taken = jdbc.sql("""
+                        SELECT EXISTS (SELECT 1 FROM app_user
+                                       WHERE lower(name) = lower(:name) AND deleted_at IS NULL AND id <> :id)""")
+                .param("name", name).param("id", userId).query(Boolean.class).single();
+        if (taken) {
+            throw ApiException.conflict("user_exists", "user " + name + " already exists");
+        }
+        if (jdbc.sql("UPDATE app_user SET name = :name WHERE id = :id AND deleted_at IS NULL")
+                .param("name", name).param("id", userId).update() == 0) {
+            throw new NotFoundException("user " + userId + " not found");
+        }
+    }
+
+    /** Admin: sets a live user's password without the current one (e.g. a forgotten password). */
+    @Transactional
+    public void resetPassword(UUID userId, String password) {
+        String hash = passwords.encode(checkedPassword(password));
+        if (jdbc.sql("UPDATE app_user SET password_hash = :hash WHERE id = :id AND deleted_at IS NULL")
+                .param("hash", hash).param("id", userId).update() == 0) {
+            throw new NotFoundException("user " + userId + " not found");
+        }
     }
 
     private Optional<Account> account(String condition, String param, Object value) {

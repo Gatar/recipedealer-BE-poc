@@ -6,34 +6,44 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.gatar.recipedealer.common.Jdbc;
+import com.gatar.recipedealer.household.HouseholdService;
 import com.gatar.recipedealer.household.LlmBudget;
 import com.gatar.recipedealer.web.ApiException;
 import com.gatar.recipedealer.web.NotFoundException;
 
 import tools.jackson.databind.JsonNode;
 
-/** All households with their counts; the admin renames them and sets their recipe limit. */
+/**
+ * All households with their counts; the admin creates, renames and deletes them, sets their limits and hands out
+ * invitation codes.
+ */
 @RestController
 @RequestMapping("/v1/admin/households")
 public class AdminHouseholdController {
 
     private final JdbcClient jdbc;
     private final LlmBudget budget;
+    private final HouseholdService households;
 
-    public AdminHouseholdController(JdbcClient jdbc, LlmBudget budget) {
+    public AdminHouseholdController(JdbcClient jdbc, LlmBudget budget, HouseholdService households) {
         this.jdbc = jdbc;
         this.budget = budget;
+        this.households = households;
     }
 
     /**
@@ -65,32 +75,85 @@ public class AdminHouseholdController {
             throw new NotFoundException("household " + householdId + " not found");
         }
         if (body.has("name")) {
-            JsonNode name = body.get("name");
-            if (!name.isString() || name.asString().isBlank() || name.asString().strip().length() > 100) {
-                throw ApiException.badRequest("name must be 1-100 characters");
-            }
             jdbc.sql("UPDATE household SET name = :name WHERE id = :id")
-                    .param("name", name.asString().strip()).param("id", householdId).update();
+                    .param("name", name(body.get("name"))).param("id", householdId).update();
         }
         if (body.has("recipeLimit")) {
-            JsonNode limit = body.get("recipeLimit");
-            if (!limit.isNull() && (!limit.isIntegralNumber() || limit.asInt() < 0)) {
-                throw ApiException.badRequest("recipeLimit must be a number >= 0 or null");
-            }
             jdbc.sql("UPDATE household SET recipe_limit = :limit WHERE id = :id")
-                    .param("limit", limit.isNull() ? null : limit.asInt()).param("id", householdId).update();
+                    .param("limit", recipeLimit(body.get("recipeLimit"))).param("id", householdId).update();
         }
         if (body.has("llmBudgetUsd")) {
-            JsonNode budget = body.get("llmBudgetUsd");
-            if (!budget.isNull() && (!budget.isNumber() || budget.decimalValue().signum() < 0
-                    || budget.decimalValue().compareTo(new BigDecimal("99999999")) > 0)) {
-                throw ApiException.badRequest("llmBudgetUsd must be a number >= 0 or null");
-            }
             jdbc.sql("UPDATE household SET llm_budget_usd = CAST(:budget AS numeric) WHERE id = :id")
-                    .param("budget", budget.isNull() ? null : budget.decimalValue().setScale(2, RoundingMode.HALF_UP))
-                    .param("id", householdId).update();
+                    .param("budget", budgetUsd(body.get("llmBudgetUsd"))).param("id", householdId).update();
         }
         return query(householdId).getFirst();
+    }
+
+    /**
+     * A new household without users, beyond the household limit. Body: {@code name}, optional {@code recipeLimit} and
+     * {@code llmBudgetUsd} (missing: the defaults of a household created in the app; null: no limit).
+     */
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public AdminHousehold create(@RequestBody JsonNode body) {
+        if (body == null || !body.isObject() || !body.has("name")) {
+            throw ApiException.badRequest("name is required");
+        }
+        var defaults = households.properties();
+        UUID id = households.createHouseholdAsAdmin(name(body.get("name")),
+                body.has("recipeLimit") ? recipeLimit(body.get("recipeLimit")) : Integer.valueOf(defaults.defaultRecipeLimit()),
+                body.has("llmBudgetUsd") ? budgetUsd(body.get("llmBudgetUsd")) : defaults.defaultLlmBudgetUsd());
+        return query(id).getFirst();
+    }
+
+    /** Deletes a household with all its users, like its owner would (never the default household). */
+    @DeleteMapping("/{householdId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable UUID householdId) {
+        households.deleteHousehold(householdId);
+    }
+
+    /** A single-use invitation code to a household (48 h); the code is shown only in this answer. */
+    @PostMapping("/{householdId}/invitations")
+    @ResponseStatus(HttpStatus.CREATED)
+    public HouseholdService.InvitationView invite(@PathVariable UUID householdId) {
+        return households.createInvitation(householdId, null, "admin");
+    }
+
+    @GetMapping("/{householdId}/invitations")
+    public List<HouseholdService.InvitationView> invitations(@PathVariable UUID householdId) {
+        if (query(householdId).isEmpty()) {
+            throw new NotFoundException("household " + householdId + " not found");
+        }
+        return households.invitations(householdId);
+    }
+
+    @DeleteMapping("/{householdId}/invitations/{invitationId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void revokeInvitation(@PathVariable UUID householdId, @PathVariable UUID invitationId) {
+        households.revokeInvitation(householdId, invitationId);
+    }
+
+    private static String name(JsonNode name) {
+        if (name == null || !name.isString() || name.asString().isBlank() || name.asString().strip().length() > 100) {
+            throw ApiException.badRequest("name must be 1-100 characters");
+        }
+        return name.asString().strip();
+    }
+
+    private static Integer recipeLimit(JsonNode limit) {
+        if (!limit.isNull() && (!limit.isIntegralNumber() || limit.asInt() < 0)) {
+            throw ApiException.badRequest("recipeLimit must be a number >= 0 or null");
+        }
+        return limit.isNull() ? null : limit.asInt();
+    }
+
+    private static BigDecimal budgetUsd(JsonNode budget) {
+        if (!budget.isNull() && (!budget.isNumber() || budget.decimalValue().signum() < 0
+                || budget.decimalValue().compareTo(new BigDecimal("99999999")) > 0)) {
+            throw ApiException.badRequest("llmBudgetUsd must be a number >= 0 or null");
+        }
+        return budget.isNull() ? null : budget.decimalValue().setScale(2, RoundingMode.HALF_UP);
     }
 
     private List<AdminHousehold> query(UUID householdId) {

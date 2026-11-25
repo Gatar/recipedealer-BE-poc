@@ -86,6 +86,21 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   `deleted_at` (names free), devices revoked, household `deleted_at`, data kept. A real purge of a household's data
   is still to do (needed for the Play Store's account deletion).
 
+## Admin dashboard (agreed 2026-11-25, stage 2.5)
+- `https://<server>/admin/`: static page (`static/admin/`: `index.html`, `admin.css`, `admin.js`, vanilla JS, Polish UI)
+  in the admin security chain; the browser's Basic login prompt, no login form. User, 2026-11-25: views of everything
+  but **edits only through specific actions** (no raw table editor): household name / recipe limit / Claude budget,
+  user role, user deletion, device revocation, enrollment, re-read with AI, backups, API key check.
+- Read endpoints across households in `AdminDashboardController` (`/v1/admin/overview`, `users`, `recipes`,
+  `captures`, `llm-costs`, `blobs/{sha256}`), at most 500 rows each.
+- `AdminAuthRateLimiter` counts only failed logins with credentials (a browser's first request has none).
+  `SameOriginFilter`: a changing admin request with a foreign `Origin` is 403 `cross_origin` (CSRF: the browser
+  keeps the Basic login). CSP `default-src 'self'`: no inline scripts or `style` attributes in the page (CSSOM in
+  JS is fine). `admin.js` builds URLs from `location.origin` (a page opened as `https://user:pass@host/` would put the
+  credentials into relative fetch URLs).
+- Try it locally: `./mvnw spring-boot:test-run` (`TestRecipeDealerApplication`: Testcontainers DB, admin `admin` /
+  `test-admin-password`), or the `backend-local` preview in `../.claude/launch.json`; the database starts empty.
+
 ## Before the beta (agreed 2026-10-27)
 - Auto-NEW: processing stores NEW (capture's user/device, no tags) for a candidate without a decision that matches
   no live recipe (`CandidateService.hasMatch`: identity key, URL or similar title); otherwise `needs_decision`.

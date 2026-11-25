@@ -23,15 +23,23 @@ import com.gatar.recipedealer.web.ApiError;
 @EnableConfigurationProperties({AdminProperties.class, RegistrationProperties.class})
 public class SecurityConfig {
 
-    /** {@code /v1/admin/**}: HTTP Basic with the admin credentials from the environment, rate limited. */
+    /**
+     * {@code /v1/admin/**} and the dashboard {@code /admin/**}: HTTP Basic with the admin credentials from the
+     * environment, rate limited, changing requests only from this server's own pages.
+     */
     @Bean
     @Order(1)
     SecurityFilterChain adminChain(HttpSecurity http, AdminAuthRateLimiter rateLimiter) throws Exception {
         return http
-                .securityMatcher("/v1/admin/**")
+                .securityMatcher("/v1/admin/**", "/admin", "/admin/**")
                 .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("ADMIN"))
                 .httpBasic(basic -> basic.authenticationEntryPoint(rateLimiter.countingEntryPoint()))
                 .addFilterBefore(rateLimiter.blockingFilter(), BasicAuthenticationFilter.class)
+                .addFilterBefore(new SameOriginFilter(), BasicAuthenticationFilter.class)
+                // the dashboard must never be framed by another site
+                .headers(headers -> headers.frameOptions(frame -> frame.deny())
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(
+                                "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'")))
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .build();

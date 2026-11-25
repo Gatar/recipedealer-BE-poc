@@ -1796,6 +1796,199 @@
           ]
         },
         {
+          "name": "Overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/overview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "overview"
+              ]
+            },
+            "description": "Counts, captures by state, Claude costs, last API key check."
+          }
+        },
+        {
+          "name": "Claude costs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/llm-costs?months=6",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "llm-costs"
+              ],
+              "query": [
+                {
+                  "key": "months",
+                  "value": "6"
+                }
+              ]
+            },
+            "description": "Per month (UTC), household, kind and model; months 1-120."
+          }
+        },
+        {
+          "name": "Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/users?deleted=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "deleted",
+                  "value": "false"
+                }
+              ]
+            },
+            "description": "Optional householdId; deleted=true adds deleted users."
+          }
+        },
+        {
+          "name": "Change user role",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/users/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users",
+                "{{userId}}"
+              ]
+            },
+            "description": "200 user; 400 role; 404.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"owner\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Recipes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/recipes?q=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "recipes"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Optional householdId, q (title part), deleted."
+          }
+        },
+        {
+          "name": "Recipe detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/recipes/{{recipeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "recipes",
+                "{{recipeId}}"
+              ]
+            },
+            "description": "Head content, tags, URLs, revisions."
+          }
+        },
+        {
+          "name": "Captures",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/captures?status=needs_attention",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "captures"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "needs_attention"
+                }
+              ]
+            },
+            "description": "Optional householdId, status (comma-separated)."
+          }
+        },
+        {
+          "name": "Blob (admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/blobs/{{blobSha256}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "blobs",
+                "{{blobSha256}}"
+              ]
+            },
+            "description": "Any blob, without the household check."
+          }
+        },
+        {
           "name": "Devices",
           "request": {
             "method": "GET",

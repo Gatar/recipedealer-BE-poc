@@ -53,10 +53,15 @@ public class AdminAuthRateLimiter {
         };
     }
 
-    /** Answers 401 for a failed or missing admin login and counts it as a failure. */
+    /**
+     * Answers 401 for a failed or missing admin login; only a failed one (credentials sent) counts as a failure, so a
+     * browser opening the dashboard (first request without credentials) does not use up the budget.
+     */
     public AuthenticationEntryPoint countingEntryPoint() {
         return (request, response, e) -> {
-            failures.tryConsume(1);
+            if (request.getHeader(HttpHeaders.AUTHORIZATION) != null) {
+                failures.tryConsume(1);
+            }
             response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Basic realm=\"recipedealer-admin\"");
             write(response, HttpStatus.UNAUTHORIZED, ApiError.of("unauthorized", "admin credentials required"));
         };

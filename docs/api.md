@@ -766,6 +766,64 @@ Deletes a user, also one with history:
 
 **204**, also when already deleted · **404**.
 
+### Admin dashboard
+
+`https://<server>/admin/`: a web page for the admin (Polish), behind the same Basic login (the browser asks for it).
+It reads and changes data only through the admin endpoints of this section. Opening it without credentials does not
+count as a failed admin login. A changing admin request (not GET) whose `Origin` header names another site answers
+**403** `cross_origin` (the browser keeps the Basic login and would send it with requests other sites trigger).
+
+The dashboard's views across all households (at most 500 rows each, newest first):
+
+### GET /v1/admin/overview
+
+**200** `{"serverTime": "…", "households": 2, "users": 5, "devices": 7, "recipes": 40, "deletedRecipes": 3,
+"captures": 80, "capturesByStatus": {"done": 70, "needs_decision": 2}, "blobs": 300, "blobBytes": 123456789,
+"llmCostThisMonthUsd": 0.12, "llmCostTotalUsd": 1.85, "lastApiKeyCheck": {"checkedAt": "…", "success": true,
+"errorType": null}}`; counts of live rows; costs of all Claude calls (comparisons and key checks included).
+
+### GET /v1/admin/llm-costs
+
+Query `months` (1–120, default 6: this month and the 5 before, UTC). **200** `[{"month": "2026-11", "householdId":
+"…", "householdName": "Dom", "kind": "extraction | tagging | translation | api-key-check", "model": "claude-haiku-5-5",
+"calls": 12, "costUsd": 0.0214}]`, newest month first, then by cost; key checks have no household. **400** for
+`months` out of range.
+
+### GET /v1/admin/users
+
+Query `householdId` (optional), `deleted` (default `false`: only live users). **200** `[{"userId": "…", "userName":
+"Ania", "householdId": "…", "householdName": "Dom", "role": "owner", "hasPassword": true, "devices": 2, "createdAt":
+"…", "lastUsedAt": "…", "deletedAt": null}]`; `devices` counts working devices.
+
+### PATCH /v1/admin/users/{userId}
+
+Body `{"role": "owner | member"}`. The admin may also leave a household without an owner. **200** the user, as in
+`GET /v1/admin/users` · **400** another role · **404** unknown or deleted user.
+
+### GET /v1/admin/recipes
+
+Query `householdId`, `q` (part of the title; case and accents ignored), `deleted` (default `false`). **200**
+`[{"recipeId": "…", "householdId": "…", "householdName": "Dom", "title": "…", "sourceSummary": "…", "thumbnailBlob":
+"…", "needsReview": false, "deleted": false, "revisions": 2, "createdAt": "…", "updatedAt": "…"}]`, last changed first.
+
+### GET /v1/admin/recipes/{recipeId}
+
+**200** `{"recipe": {…as in the list}, "content": Recipe, "tags": ["meal:dinner"], "urls": ["https://…"],
+"revisions": [{"revisionId": "…", "head": true, "origin": "MACHINE | USER", "needsReview": false, "captureId": "…",
+"userName": "Ania", "createdAt": "…"}]}`, also for a deleted recipe (`content` of its last head) · **404**.
+
+### GET /v1/admin/captures
+
+Query `householdId`, `status` (comma-separated capture states). **200** `[{"captureId": "…", "householdId": "…",
+"householdName": "Dom", "userName": "Ania", "deviceName": "Pixel 9", "sourceType": "WEB", "sourceUrl": "…", "title":
+"…", "status": "done", "reason": null, "message": "…", "attachments": 1, "llmCostUsd": 0.0021, "receivedAt": "…",
+"recipeIds": ["…"]}]`; `llmCostUsd`: the capture's extraction runs.
+
+### GET /v1/admin/blobs/{sha256}
+
+Any blob, as `GET /v1/blobs/{sha256}` without the household check (thumbnails and attachments in the dashboard).
+**200** · **404**.
+
 ### POST /v1/admin/backups
 
 Creates a full backup now: a ZIP with `database.dump` (`pg_dump --format=custom`), `blobs/` and `manifest.json`, in

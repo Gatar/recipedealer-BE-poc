@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>RecipeDealer – panel admina</title>
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+<header class="top">
+    <h1>RecipeDealer <span>panel admina</span></h1>
+    <nav id="tabs">
+        <button data-tab="overview" class="active">Przegląd</button>
+        <button data-tab="households">Domy</button>
+        <button data-tab="users">Użytkownicy</button>
+        <button data-tab="devices">Urządzenia</button>
+        <button data-tab="recipes">Przepisy</button>
+        <button data-tab="captures">Zrzuty</button>
+        <button data-tab="costs">Koszty Claude</button>
+        <button data-tab="backups">Kopie zapasowe</button>
+    </nav>
+</header>
+
+<div id="toast" class="toast hidden"></div>
+
+<main>
+    <section id="overview" class="tab">
+        <div id="overview-cards" class="cards"></div>
+        <div class="panel">
+            <h2>Klucz API Claude</h2>
+            <p id="api-key-status" class="muted"></p>
+            <button id="api-key-check">Sprawdź klucz teraz</button>
+        </div>
+        <div class="panel">
+            <h2>Zrzuty według stanu</h2>
+            <div id="overview-statuses"></div>
+        </div>
+    </section>
+
+    <section id="households" class="tab hidden">
+        <p class="muted">Puste pole limitu lub budżetu = bez limitu. Niższy limit niczego nie usuwa, tylko blokuje nowe przepisy.
+            Budżet liczy się w miesiącu kalendarzowym (UTC).</p>
+        <div class="table-wrap"><table id="households-table"></table></div>
+    </section>
+
+    <section id="users" class="tab hidden">
+        <div class="filters">
+            <label>Dom <select class="household-filter" data-for="users"></select></label>
+            <label class="check"><input type="checkbox" id="users-deleted"> pokaż usuniętych</label>
+        </div>
+        <div class="table-wrap"><table id="users-table"></table></div>
+        <div class="panel">
+            <h2>Dodaj urządzenie (rejestracja przez admina)</h2>
+            <p class="muted">Nowy użytkownik trafia do wybranego domu, bez hasła (ustawi je w aplikacji). Istniejący zachowuje swój dom.</p>
+            <form id="enroll-form" class="inline-form">
+                <input name="userName" placeholder="Użytkownik" required maxlength="100">
+                <input name="deviceName" placeholder="Urządzenie" required maxlength="100">
+                <select name="householdId" class="household-select"></select>
+                <button type="submit">Dodaj</button>
+            </form>
+            <p id="enroll-result" class="token hidden"></p>
+        </div>
+    </section>
+
+    <section id="devices" class="tab hidden">
+        <div class="filters">
+            <label>Dom <select class="household-filter" data-for="devices"></select></label>
+            <label class="check"><input type="checkbox" id="devices-revoked"> pokaż odwołane</label>
+        </div>
+        <div class="table-wrap"><table id="devices-table"></table></div>
+    </section>
+
+    <section id="recipes" class="tab hidden">
+        <div class="filters">
+            <label>Dom <select class="household-filter" data-for="recipes"></select></label>
+            <label>Szukaj <input type="search" id="recipes-q" placeholder="tytuł"></label>
+            <label class="check"><input type="checkbox" id="recipes-deleted"> pokaż usunięte</label>
+        </div>
+        <div class="table-wrap"><table id="recipes-table"></table></div>
+    </section>
+
+    <section id="captures" class="tab hidden">
+        <div class="filters">
+            <label>Dom <select class="household-filter" data-for="captures"></select></label>
+            <label>Stan <select id="captures-status">
+                <option value="">wszystkie</option>
+                <option value="needs_attention">needs_attention</option>
+                <option value="needs_decision">needs_decision</option>
+                <option value="accepted,processing">w toku</option>
+                <option value="done">done</option>
+            </select></label>
+            <button id="captures-reread" disabled>Ponownie odczytaj AI (zaznaczone)</button>
+        </div>
+        <div class="table-wrap"><table id="captures-table"></table></div>
+    </section>
+
+    <section id="costs" class="tab hidden">
+        <div class="filters">
+            <label>Okres <select id="costs-months">
+                <option value="1">bieżący miesiąc</option>
+                <option value="3">3 miesiące</option>
+                <option value="6" selected>6 miesięcy</option>
+                <option value="12">12 miesięcy</option>
+            </select></label>
+        </div>
+        <div id="costs-totals" class="cards"></div>
+        <div class="table-wrap"><table id="costs-table"></table></div>
+    </section>
+
+    <section id="backups" class="tab hidden">
+        <div class="panel">
+            <form id="backup-form" class="inline-form">
+                <input name="label" placeholder="etykieta (opcjonalnie, np. przed-zmiana)" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="40">
+                <button type="submit">Utwórz kopię teraz</button>
+            </form>
+            <p class="muted">Pełna kopia: zrzut bazy + wszystkie pliki. Odtwarzanie tylko na serwerze (deploy/restore.sh).</p>
+        </div>
+        <div class="table-wrap"><table id="backups-table"></table></div>
+    </section>
+</main>
+
+<dialog id="recipe-dialog">
+    <div class="dialog-head">
+        <h2 id="recipe-title"></h2>
+        <button class="close" data-close>Zamknij</button>
+    </div>
+    <div id="recipe-body"></div>
+</dialog>
+
+<script src="admin.js"></script>
+</body>
+</html>

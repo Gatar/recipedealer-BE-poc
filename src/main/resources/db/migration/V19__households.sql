@@ -16,9 +16,11 @@ UPDATE app_user SET household_id = '00000000-0000-7000-8000-000000000001', role 
 ALTER TABLE app_user ALTER COLUMN household_id SET NOT NULL;
 CREATE INDEX app_user_household_idx ON app_user (household_id);
 
--- Captures
+-- Captures (immutable rows: the trigger is off only while the existing rows get their household)
 ALTER TABLE capture ADD COLUMN household_id uuid REFERENCES household (id);
+ALTER TABLE capture DISABLE TRIGGER capture_immutable;
 UPDATE capture SET household_id = '00000000-0000-7000-8000-000000000001';
+ALTER TABLE capture ENABLE TRIGGER capture_immutable;
 ALTER TABLE capture ALTER COLUMN household_id SET NOT NULL;
 CREATE INDEX capture_household_idx ON capture (household_id, received_at);
 CREATE INDEX capture_body_idx ON capture (body_sha256);

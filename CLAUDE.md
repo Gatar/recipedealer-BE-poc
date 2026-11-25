@@ -71,6 +71,13 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   applied (also auto-NEW): it then stays pending, capture `needs_attention` / `RECIPE_LIMIT_REACHED`; sending NEW again
   applies it once there is room. The admin changes it (`PATCH /v1/admin/households/{id}`); a lower limit removes
   nothing.
+- Claude budget (user, 2026-11-25: the prepaid API credit must not be spent by strangers): `household.llm_budget_usd`
+  per calendar month (UTC), new households `DEFAULT_LLM_BUDGET_USD` 1.00, NULL = none (the default household).
+  `LlmBudget.spent` sums `cost_usd` of the household's runs (not comparisons), taggings and translations of the
+  month. Checked before a call starts (the last call may go a little over): an LLM step job ends with
+  `LLM_BUDGET_EXCEEDED`, the cascade does not go on to the next LLM step (the heuristic's partial result still
+  applies; nothing at all → `needs_attention` / `LLM_BUDGET_EXCEEDED`), forced extraction is 409
+  `llm_budget_exceeded`, tagging and translation are not requested.
 - Joining: owners create single-use invitation codes (8 characters without 0/O/1/I/L, shown as `ABCD-EFGH`, SHA-256
   stored, 48 h); `POST /v1/auth/join`; wrong codes count in `LoginRateLimiter` (key `invitation`).
 - Roles `owner | member`; owner-only: rename, delete household, roles, remove members, invitations; members revoke

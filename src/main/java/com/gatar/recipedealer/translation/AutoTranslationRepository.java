@@ -6,6 +6,8 @@ import java.util.Locale;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
+
+import com.gatar.recipedealer.household.LlmBudget;
 import org.springframework.stereotype.Component;
 
 import com.gatar.recipedealer.common.Ids;
@@ -43,27 +45,30 @@ public class AutoTranslationRepository {
     private final JobQueue jobs;
     private final AutoTranslationProperties properties;
     private final LlmProperties llm;
+    private final LlmBudget budget;
 
     public AutoTranslationRepository(JdbcClient jdbc, JobQueue jobs, AutoTranslationProperties properties,
-                                     LlmProperties llm) {
+                                     LlmProperties llm, LlmBudget budget) {
         this.jdbc = jdbc;
         this.jobs = jobs;
         this.properties = properties;
         this.llm = llm;
+        this.budget = budget;
     }
 
     /**
      * Requests translation of the head the capture just made, when the capture asked for a language and the content
      * is known to be in another one, and queues the capture's translation job. Content already in the target language
      * (a translation included) or without a language is never translated: a model can only spoil it. Runs in the
-     * transaction that holds the capture's state lock.
+     * transaction that holds the capture's state lock. Nothing is requested once the household used its monthly
+     * budget ({@link LlmBudget}).
      *
      * @param recipe   the content that became the head
      * @param tagAfter a new recipe to tag once translated
      * @return whether a translation was requested
      */
     public boolean request(UUID recipeId, UUID captureId, JsonNode recipe, boolean tagAfter) {
-        if (!properties.enabled() || !llm.enabled()) {
+        if (!properties.enabled() || !llm.enabled() || budget.exhaustedForCapture(captureId)) {
             return false;
         }
         String target = jdbc.sql("SELECT translate_to FROM capture WHERE id = :id").param("id", captureId)

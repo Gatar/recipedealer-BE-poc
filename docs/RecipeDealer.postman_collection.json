@@ -1764,10 +1764,10 @@
                 "{{householdId}}"
               ]
             },
-            "description": "Any of name and recipeLimit (null = no limit). 200; 400; 404.",
+            "description": "Any of name, recipeLimit and llmBudgetUsd (null = no limit). 200; 400; 404.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"recipeLimit\": 40\n}",
+              "raw": "{\n  \"recipeLimit\": 40,\n  \"llmBudgetUsd\": 1.0\n}",
               "options": {
                 "raw": {
                   "language": "json"

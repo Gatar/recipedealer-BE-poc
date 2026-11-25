@@ -67,6 +67,9 @@ class AutoNewTest {
     @Autowired
     TransactionTemplate tx;
 
+    @Autowired
+    com.gatar.recipedealer.household.LlmBudget budget;
+
     ProcessingService autoNew;
     String token;
 
@@ -75,7 +78,7 @@ class AutoNewTest {
         token = TestAuth.enroll(mvc, "AutoNew", "phone");
         worker.drain();
         autoNew = new ProcessingService(loader, cascade, processing, resolutionRepository, resolutions, jobs, pricing,
-                recipes, tx, new ProcessingProperties(true));
+                recipes, tx, new ProcessingProperties(true), budget);
     }
 
     /** A title no other test's recipe resembles. */

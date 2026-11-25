@@ -3,6 +3,7 @@ package com.gatar.recipedealer.household;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -48,6 +49,9 @@ class HouseholdAccountsTest {
     @Autowired
     LoginRateLimiter rateLimiter;
 
+    @Autowired
+    LlmBudget budget;
+
     String sfx;
     String ownerToken;
     String householdId;
@@ -75,6 +79,8 @@ class HouseholdAccountsTest {
         assertThat(JsonPath.<Integer>read(me, "$.household.recipeLimit")).isEqualTo(40);
         assertThat(JsonPath.<Integer>read(me, "$.household.recipeCount")).isZero();
         assertThat(JsonPath.<Integer>read(me, "$.household.userCount")).isEqualTo(1);
+        assertThat(JsonPath.<Double>read(me, "$.household.llmBudgetUsd")).isEqualTo(1.0);
+        assertThat(JsonPath.<Integer>read(me, "$.household.llmSpentUsd")).isZero();
 
         var renamed = patch(ownerToken, "/v1/household", "{\"name\": \"Nowa nazwa " + sfx + "\"}");
         assertThat(renamed).hasStatusOk();
@@ -265,12 +271,14 @@ class HouseholdAccountsTest {
     void theHouseholdLimitStopsRegistration() {
         int households = jdbc.sql("SELECT count(*) FROM household WHERE deleted_at IS NULL").query(Integer.class).single();
         var full = new HouseholdService(jdbc, accounts, tokens, rateLimiter,
-                new HouseholdProperties(households, 40, 10, Duration.ofHours(48)), new RegistrationProperties(null, 10));
+                new HouseholdProperties(households, 40, 10, Duration.ofHours(48), BigDecimal.ONE),
+                new RegistrationProperties(null, 10), budget);
         assertThatThrownBy(() -> full.createHousehold("Pełny", "Full-" + sfx, "x", "Pixel"))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.error()).isEqualTo("household_limit_reached"));
 
         var slow = new HouseholdService(jdbc, accounts, tokens, rateLimiter,
-                new HouseholdProperties(households + 10, 40, 1, Duration.ofHours(48)), new RegistrationProperties(null, 10));
+                new HouseholdProperties(households + 10, 40, 1, Duration.ofHours(48), BigDecimal.ONE),
+                new RegistrationProperties(null, 10), budget);
         slow.createHousehold("Jeden", "One-" + sfx, "x", "Pixel");
         assertThatThrownBy(() -> slow.createHousehold("Dwa", "Two-" + sfx, "x", "Pixel"))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.error()).isEqualTo("too_many_requests"));

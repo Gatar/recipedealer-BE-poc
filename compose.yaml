@@ -41,6 +41,8 @@ services:
       MAX_USERS: ${MAX_USERS:-10}
       MAX_HOUSEHOLDS: ${MAX_HOUSEHOLDS:-20}
       DEFAULT_RECIPE_LIMIT: ${DEFAULT_RECIPE_LIMIT:-40}
+      # Monthly Claude budget (USD) of a new household.
+      DEFAULT_LLM_BUDGET_USD: ${DEFAULT_LLM_BUDGET_USD:-1.00}
       # Claude API key for LLM extraction; empty disables the LLM steps (the cascade stops after the heuristic).
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # Dead man's switch pinged after each successful daily API key check; empty disables the check.

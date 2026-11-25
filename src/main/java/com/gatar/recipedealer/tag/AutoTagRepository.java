@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import com.gatar.recipedealer.common.Ids;
 import com.gatar.recipedealer.common.Jdbc;
+import com.gatar.recipedealer.household.LlmBudget;
 import com.gatar.recipedealer.llm.LlmProperties;
 import com.gatar.recipedealer.llm.LlmUsage;
 import com.gatar.recipedealer.processing.JobQueue;
@@ -40,21 +41,24 @@ public class AutoTagRepository {
     private final JobQueue jobs;
     private final AutoTagProperties properties;
     private final LlmProperties llm;
+    private final LlmBudget budget;
 
-    public AutoTagRepository(JdbcClient jdbc, JobQueue jobs, AutoTagProperties properties, LlmProperties llm) {
+    public AutoTagRepository(JdbcClient jdbc, JobQueue jobs, AutoTagProperties properties, LlmProperties llm,
+                             LlmBudget budget) {
         this.jdbc = jdbc;
         this.jobs = jobs;
         this.properties = properties;
         this.llm = llm;
+        this.budget = budget;
     }
 
     /**
      * Requests tagging of a recipe the capture just created, and queues the capture's tagging job. Nothing happens
-     * when tagging or the LLM is disabled, or the recipe's household catalog has no tags. Runs in the transaction that
-     * holds the capture's state lock.
+     * when tagging or the LLM is disabled, the recipe's household catalog has no tags or the household used its
+     * monthly budget ({@link LlmBudget}). Runs in the transaction that holds the capture's state lock.
      */
     public void request(UUID recipeId, UUID captureId) {
-        if (!properties.enabled() || !llm.enabled()
+        if (!properties.enabled() || !llm.enabled() || budget.exhaustedForCapture(captureId)
                 || !jdbc.sql("""
                                 SELECT EXISTS (SELECT 1 FROM tag t JOIN recipe r ON r.household_id = t.household_id
                                                WHERE r.id = :recipeId)""")

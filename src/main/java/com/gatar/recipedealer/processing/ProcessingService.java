@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.gatar.recipedealer.capture.CaptureStatus;
+import com.gatar.recipedealer.household.LlmBudget;
 import com.gatar.recipedealer.llm.LlmException;
 import com.gatar.recipedealer.llm.LlmPricing;
 import com.gatar.recipedealer.llm.LlmUsage;
@@ -37,6 +38,10 @@ public class ProcessingService {
     public static final String LLM_UNAVAILABLE = "LLM_UNAVAILABLE";
     /** The API refused this capture's request (a 4xx other than auth / credit). */
     public static final String LLM_REQUEST_REJECTED = "LLM_REQUEST_REJECTED";
+    /** The capture's household used its monthly Claude budget ({@link LlmBudget}). */
+    public static final String LLM_BUDGET_EXCEEDED = "LLM_BUDGET_EXCEEDED";
+    static final String BUDGET_MESSAGE =
+            "The household used its monthly budget for automatic extraction; it is available again next month.";
 
     private static final Logger log = LoggerFactory.getLogger(ProcessingService.class);
 
@@ -50,11 +55,13 @@ public class ProcessingService {
     private final RecipeRepository recipes;
     private final TransactionTemplate tx;
     private final ProcessingProperties properties;
+    private final LlmBudget budget;
 
     public ProcessingService(CaptureLoader loader, ExtractionCascade cascade, ProcessingRepository processing,
                              ResolutionRepository resolutionRepository, ResolutionService resolutions, JobQueue jobs,
                              LlmPricing pricing, RecipeRepository recipes, TransactionTemplate tx,
-                             ProcessingProperties properties) {
+                             ProcessingProperties properties, LlmBudget budget) {
+        this.budget = budget;
         this.loader = loader;
         this.cascade = cascade;
         this.processing = processing;
@@ -80,6 +87,9 @@ public class ProcessingService {
             extractor = cascade.extractor(task.step());
         } catch (IllegalArgumentException e) {
             throw new NonRetryableProcessingException(LLM_UNAVAILABLE, e.getMessage(), e);
+        }
+        if (!ExtractionCascade.HEURISTIC.equals(task.step()) && !comparison && budget.exhaustedForCapture(captureId)) {
+            throw new NonRetryableProcessingException(LLM_BUDGET_EXCEEDED, BUDGET_MESSAGE, null);
         }
         UUID runId = tx.execute(status -> {
             processing.lockState(captureId);
@@ -124,7 +134,9 @@ public class ProcessingService {
                 finished.store(processing, RunStatus.SUCCEEDED);
                 apply(capture, runId, stored);
             } else {
-                Optional<String> next = cascade.next(task.step(), capture);
+                // over the budget the cascade ends here: the heuristic's partial result still counts
+                Optional<String> next = cascade.next(task.step(), capture)
+                        .filter(step -> !budget.exhaustedForCapture(captureId));
                 if (next.isPresent()) {
                     finished.store(processing, RunStatus.REJECTED);
                     jobs.enqueue(task.next(next.get()));
@@ -191,8 +203,10 @@ public class ProcessingService {
         } else {
             current.store(processing, RunStatus.AWAITING_EXTRACTION);
             boolean decided = !resolutionRepository.forCapture(captureId).isEmpty();
-            processing.setState(captureId, CaptureStatus.NEEDS_ATTENTION, AWAITING_EXTRACTION,
-                    "No recipe could be read from this capture."
+            boolean overBudget = cascade.next(task.step(), capture).isPresent() && budget.exhaustedForCapture(captureId);
+            processing.setState(captureId, CaptureStatus.NEEDS_ATTENTION,
+                    overBudget ? LLM_BUDGET_EXCEEDED : AWAITING_EXTRACTION,
+                    (overBudget ? BUDGET_MESSAGE : "No recipe could be read from this capture.")
                             + (decided ? " Your decision is saved." : ""));
         }
     }

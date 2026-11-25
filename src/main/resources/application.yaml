@@ -34,6 +34,8 @@ recipedealer:
   households:
     max-households: ${MAX_HOUSEHOLDS:20}
     default-recipe-limit: ${DEFAULT_RECIPE_LIMIT:40}
+    # USD of Claude API calls per calendar month (UTC) for a new household; the admin changes it per household.
+    default-llm-budget-usd: ${DEFAULT_LLM_BUDGET_USD:1.00}
     max-new-per-hour: 10
     invitation-ttl: 48h
   llm:

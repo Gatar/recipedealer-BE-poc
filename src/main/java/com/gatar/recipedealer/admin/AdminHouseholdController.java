@@ -1,5 +1,7 @@
 package com.gatar.recipedealer.admin;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.gatar.recipedealer.common.Jdbc;
+import com.gatar.recipedealer.household.LlmBudget;
 import com.gatar.recipedealer.web.ApiException;
 import com.gatar.recipedealer.web.NotFoundException;
 
@@ -26,15 +29,21 @@ import tools.jackson.databind.JsonNode;
 public class AdminHouseholdController {
 
     private final JdbcClient jdbc;
+    private final LlmBudget budget;
 
-    public AdminHouseholdController(JdbcClient jdbc) {
+    public AdminHouseholdController(JdbcClient jdbc, LlmBudget budget) {
         this.jdbc = jdbc;
+        this.budget = budget;
     }
 
-    /** {@code recipeLimit} null = no limit; counts are of live users, devices and recipes. */
+    /**
+     * {@code recipeLimit}, {@code llmBudgetUsd} null = no limit; {@code llmSpentUsd}: this calendar month (UTC);
+     * counts are of live users, devices and recipes.
+     */
     @JsonInclude(JsonInclude.Include.ALWAYS)
-    public record AdminHousehold(UUID householdId, String name, Integer recipeLimit, int users, int devices, int recipes,
-                                 int captures, Instant createdAt, Instant deletedAt) {
+    public record AdminHousehold(UUID householdId, String name, Integer recipeLimit, BigDecimal llmBudgetUsd,
+                                 BigDecimal llmSpentUsd, int users, int devices, int recipes, int captures,
+                                 Instant createdAt, Instant deletedAt) {
     }
 
     @GetMapping
@@ -43,8 +52,8 @@ public class AdminHouseholdController {
     }
 
     /**
-     * Body: any of {@code name} and {@code recipeLimit} (a number, or null for no limit); a field that is missing
-     * stays as it is.
+     * Body: any of {@code name}, {@code recipeLimit} and {@code llmBudgetUsd} (numbers, or null for no limit); a field
+     * that is missing stays as it is.
      */
     @PatchMapping("/{householdId}")
     @Transactional
@@ -71,12 +80,22 @@ public class AdminHouseholdController {
             jdbc.sql("UPDATE household SET recipe_limit = :limit WHERE id = :id")
                     .param("limit", limit.isNull() ? null : limit.asInt()).param("id", householdId).update();
         }
+        if (body.has("llmBudgetUsd")) {
+            JsonNode budget = body.get("llmBudgetUsd");
+            if (!budget.isNull() && (!budget.isNumber() || budget.decimalValue().signum() < 0
+                    || budget.decimalValue().compareTo(new BigDecimal("99999999")) > 0)) {
+                throw ApiException.badRequest("llmBudgetUsd must be a number >= 0 or null");
+            }
+            jdbc.sql("UPDATE household SET llm_budget_usd = CAST(:budget AS numeric) WHERE id = :id")
+                    .param("budget", budget.isNull() ? null : budget.decimalValue().setScale(2, RoundingMode.HALF_UP))
+                    .param("id", householdId).update();
+        }
         return query(householdId).getFirst();
     }
 
     private List<AdminHousehold> query(UUID householdId) {
         return jdbc.sql("""
-                        SELECT h.id, h.name, h.recipe_limit, h.created_at, h.deleted_at,
+                        SELECT h.id, h.name, h.recipe_limit, h.llm_budget_usd, h.created_at, h.deleted_at,
                                (SELECT count(*) FROM app_user u WHERE u.household_id = h.id AND u.deleted_at IS NULL) AS users,
                                (SELECT count(*) FROM device_token d JOIN app_user u ON u.id = d.user_id
                                 WHERE u.household_id = h.id AND u.deleted_at IS NULL AND d.revoked_at IS NULL) AS devices,
@@ -88,7 +107,8 @@ public class AdminHouseholdController {
                         ORDER BY h.created_at""")
                 .param("id", householdId)
                 .query((rs, n) -> new AdminHousehold(Jdbc.uuid(rs, "id"), rs.getString("name"),
-                        (Integer) rs.getObject("recipe_limit"), rs.getInt("users"), rs.getInt("devices"),
+                        (Integer) rs.getObject("recipe_limit"), rs.getBigDecimal("llm_budget_usd"),
+                        budget.spent(Jdbc.uuid(rs, "id")), rs.getInt("users"), rs.getInt("devices"),
                         rs.getInt("recipes"), rs.getInt("captures"), Jdbc.instant(rs, "created_at"),
                         Jdbc.instant(rs, "deleted_at")))
                 .list();

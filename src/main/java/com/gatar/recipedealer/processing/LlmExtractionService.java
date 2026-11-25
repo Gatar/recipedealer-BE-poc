@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.gatar.recipedealer.capture.CaptureStatus;
 import com.gatar.recipedealer.common.Ids;
+import com.gatar.recipedealer.household.LlmBudget;
 import com.gatar.recipedealer.web.ApiException;
 import com.gatar.recipedealer.web.NotFoundException;
 
@@ -31,9 +32,11 @@ public class LlmExtractionService {
     private final ProcessingRepository processing;
     private final JobQueue jobs;
     private final JdbcClient jdbc;
+    private final LlmBudget budget;
 
     public LlmExtractionService(ExtractionCascade cascade, CaptureLoader loader, ProcessingRepository processing,
-                                JobQueue jobs, JdbcClient jdbc) {
+                                JobQueue jobs, JdbcClient jdbc, LlmBudget budget) {
+        this.budget = budget;
         this.cascade = cascade;
         this.loader = loader;
         this.processing = processing;
@@ -138,6 +141,9 @@ public class LlmExtractionService {
         if (jobs.hasActive(captureId)) {
             return "extraction_in_progress";
         }
+        if (budget.exhaustedForCapture(captureId)) {
+            return "llm_budget_exceeded";
+        }
         try {
             return cascade.hasLlmInput(loader.load(captureId)) ? null : "no_llm_input";
         } catch (IOException e) {
@@ -149,6 +155,7 @@ public class LlmExtractionService {
         return switch (problem) {
             case "extraction_in_progress" -> "this capture is already being processed";
             case "no_llm_input" -> "this capture has no attachments or text for automatic extraction";
+            case "llm_budget_exceeded" -> ProcessingService.BUDGET_MESSAGE;
             default -> problem;
         };
     }

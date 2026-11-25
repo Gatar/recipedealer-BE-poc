@@ -85,7 +85,7 @@ A recipe whose thumbnail arrives later comes again in the sync feed.
 ```json
 {
   "captureId": "…", "status": "accepted | processing | needs_decision | needs_attention | done",
-  "reason": "AWAITING_EXTRACTION | PROCESSING_FAILED | LLM_UNAVAILABLE | LLM_REQUEST_REJECTED | TARGET_GONE | RECIPE_LIMIT_REACHED | null",
+  "reason": "AWAITING_EXTRACTION | PROCESSING_FAILED | LLM_UNAVAILABLE | LLM_REQUEST_REJECTED | LLM_BUDGET_EXCEEDED | TARGET_GONE | RECIPE_LIMIT_REACHED | null",
   "message": "… | null",
   "recipes": [{"recipeId": "…", "title": "…"}],
   "candidates": [{"index": 0, "title": "…", "ingredientCount": 9, "stepCount": 5, "needsReview": false,
@@ -103,6 +103,8 @@ A recipe whose thumbnail arrives later comes again in the sync feed.
   - `LLM_UNAVAILABLE`: automatic extraction could not run (the server's Claude API key is missing or invalid, or the
     account has no credit). Not retried; force extraction again once it is fixed.
   - `LLM_REQUEST_REJECTED`: the Claude API refused this capture's request (e.g. an attachment it cannot read).
+  - `LLM_BUDGET_EXCEEDED`: the household used its monthly Claude budget (Households) and the capture had no result
+    without Claude. Force extraction again next month or after the admin raised the budget.
   - `TARGET_GONE`: the recipe chosen with UPDATE was deleted; decide again.
   - `RECIPE_LIMIT_REACHED` (status `needs_attention`): a NEW decision (also an automatic one) waits because the
     household has as many live recipes as its limit. After a recipe is deleted or the limit is raised, send the NEW
@@ -250,8 +252,16 @@ devices stop working and their names are free again; the data stays on the serve
 Errors of this section: **403** `owner_required` (the caller is a member, the action needs an owner), **409**
 `last_owner` (the household would be left without an owner while it has other members).
 
+**Claude budget.** A new household may cause at most 1 USD of Claude API costs per calendar month (UTC;
+`DEFAULT_LLM_BUDGET_USD`, the admin changes it per household; the default household has none). Extraction runs,
+taggings and translations count (admin comparisons do not). A call starts only while the month's spending is below
+the budget. Over it: LLM extraction steps are skipped (the heuristic result still counts; a capture without one gets
+`needs_attention` / `LLM_BUDGET_EXCEEDED`), forcing extraction answers 409 `llm_budget_exceeded`, new recipes are not
+tagged or translated.
+
 **HouseholdView:** `{"householdId": "…", "name": "Dom", "recipeLimit": 40, "recipeCount": 12, "userLimit": 10,
-"userCount": 3, "createdAt": "…"}`; `recipeLimit` is `null` for no limit.
+"userCount": 3, "llmBudgetUsd": 1.00, "llmSpentUsd": 0.0123, "createdAt": "…"}`; `recipeLimit` and `llmBudgetUsd`
+are `null` for no limit; `llmSpentUsd` is this month's.
 
 ### POST /v1/auth/households
 
@@ -431,6 +441,7 @@ photos: the result keeps the page photo the phone found, else the photos of the 
 - **404** `not_found`.
 - **409** `extraction_in_progress`: the capture is being processed (a job is queued or running).
 - **409** `no_llm_input`: the capture has no attachment or text an LLM could read.
+- **409** `llm_budget_exceeded`: the household used its monthly Claude budget (Households).
 - **503** `llm_unavailable`: the server has no Claude API key.
 
 ### DELETE /v1/captures/{captureId}
@@ -720,19 +731,21 @@ device's token, as a login does.
 **200** all households, oldest first, also deleted ones:
 
 ```json
-[{"householdId": "…", "name": "Dom", "recipeLimit": 40, "users": 3, "devices": 4, "recipes": 12, "captures": 30,
-  "createdAt": "…", "deletedAt": null}]
+[{"householdId": "…", "name": "Dom", "recipeLimit": 40, "llmBudgetUsd": 1.00, "llmSpentUsd": 0.0123, "users": 3,
+  "devices": 4, "recipes": 12, "captures": 30, "createdAt": "…", "deletedAt": null}]
 ```
 
-`recipeLimit` `null` = no limit; `users`, `devices` and `recipes` count only live ones.
+`recipeLimit`, `llmBudgetUsd` `null` = no limit; `llmSpentUsd`: this calendar month (UTC); `users`, `devices` and
+`recipes` count only live ones.
 
 ### PATCH /v1/admin/households/{householdId}
 
-Body: any of `{"name": "Dom", "recipeLimit": 60}`; `"recipeLimit": null` removes the limit, a missing field stays as
-it is. A lower limit than the household's recipe count removes nothing; it only stops new recipes.
+Body: any of `{"name": "Dom", "recipeLimit": 60, "llmBudgetUsd": 2.50}`; `null` removes a limit, a missing field
+stays as it is. The budget is rounded to cents. A lower limit than the household's recipe count removes nothing; it
+only stops new recipes.
 
 - **200** the household, as in `GET /v1/admin/households`.
-- **400** `invalid_request`: a name of 0 or over 100 characters, a limit that is not a number ≥ 0.
+- **400** `invalid_request`: a name of 0 or over 100 characters, a limit or budget that is not a number ≥ 0.
 - **404**.
 
 ### GET /v1/admin/devices

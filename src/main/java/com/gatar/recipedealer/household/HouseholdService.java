@@ -1,5 +1,6 @@
 package com.gatar.recipedealer.household;
 
+import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
@@ -51,12 +52,14 @@ public class HouseholdService {
     private final LoginRateLimiter rateLimiter;
     private final HouseholdProperties properties;
     private final RegistrationProperties registration;
+    private final LlmBudget budget;
     private final SecureRandom random = new SecureRandom();
     private final Bucket creations;
 
     public HouseholdService(JdbcClient jdbc, AccountService accounts, DeviceTokenService tokens,
                             LoginRateLimiter rateLimiter, HouseholdProperties properties,
-                            RegistrationProperties registration) {
+                            RegistrationProperties registration, LlmBudget budget) {
+        this.budget = budget;
         this.jdbc = jdbc;
         this.accounts = accounts;
         this.tokens = tokens;
@@ -69,10 +72,10 @@ public class HouseholdService {
                 .build();
     }
 
-    /** {@code recipeLimit} null = no limit. */
+    /** {@code recipeLimit}, {@code llmBudgetUsd} null = no limit; {@code llmSpentUsd}: this calendar month (UTC). */
     @JsonInclude(JsonInclude.Include.ALWAYS)
     public record HouseholdView(UUID householdId, String name, Integer recipeLimit, int recipeCount, int userLimit,
-                                int userCount, Instant createdAt) {
+                                int userCount, BigDecimal llmBudgetUsd, BigDecimal llmSpentUsd, Instant createdAt) {
     }
 
     public record MeView(UUID userId, String userName, String role, boolean hasPassword, UUID deviceId,
@@ -107,8 +110,9 @@ public class HouseholdService {
                     "too many new households, try again later");
         }
         UUID householdId = Ids.newId();
-        jdbc.sql("INSERT INTO household (id, name, recipe_limit) VALUES (:id, :name, :limit)")
-                .param("id", householdId).param("name", name).param("limit", properties.defaultRecipeLimit()).update();
+        jdbc.sql("INSERT INTO household (id, name, recipe_limit, llm_budget_usd) VALUES (:id, :name, :limit, :budget)")
+                .param("id", householdId).param("name", name).param("limit", properties.defaultRecipeLimit())
+                .param("budget", properties.defaultLlmBudgetUsd()).update();
         return accounts.createUser(householdId, OWNER, userName, password, deviceName);
     }
 
@@ -153,7 +157,7 @@ public class HouseholdService {
     @Transactional(readOnly = true)
     public HouseholdView household(UUID householdId) {
         return jdbc.sql("""
-                        SELECT h.id, h.name, h.recipe_limit, h.created_at,
+                        SELECT h.id, h.name, h.recipe_limit, h.llm_budget_usd, h.created_at,
                                (SELECT count(*) FROM recipe r WHERE r.household_id = h.id
                                   AND r.deleted_at IS NULL AND r.merged_into IS NULL) AS recipes,
                                (SELECT count(*) FROM app_user u WHERE u.household_id = h.id AND u.deleted_at IS NULL) AS users
@@ -161,7 +165,8 @@ public class HouseholdService {
                 .param("id", householdId)
                 .query((rs, n) -> new HouseholdView(Jdbc.uuid(rs, "id"), rs.getString("name"),
                         (Integer) rs.getObject("recipe_limit"), rs.getInt("recipes"), registration.maxUsers(),
-                        rs.getInt("users"), Jdbc.instant(rs, "created_at")))
+                        rs.getInt("users"), rs.getBigDecimal("llm_budget_usd"), budget.spent(householdId),
+                        Jdbc.instant(rs, "created_at")))
                 .single();
     }
 

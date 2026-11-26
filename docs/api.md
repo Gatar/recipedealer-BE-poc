@@ -309,8 +309,9 @@ optional (omit it or send `null`), but required for the first user of a househol
 ### POST /v1/auth/login-code
 
 Logs a new device into an existing account with a login code an owner created (`POST
-/v1/household/members/{userId}/login-code`). No token needed. Like a login with the password: the same device name
-replaces that device's token.
+/v1/household/members/{userId}/login-code`). No token needed. Simpler than a password login (the owner vouches for
+the device): `deviceName` is optional (`"Urządzenie"` without one) and never replaces another working device of the
+account: a name in use gets `" (2)"`, `" (3)"`, ….
 
 ```json
 {"loginCode": "ABCD-EFGH", "deviceName": "Tablet"}

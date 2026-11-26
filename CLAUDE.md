@@ -90,8 +90,10 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   `email_required` until they set one with `PATCH /v1/me`; deleting the household and devices stay possible.
 - Login codes (user, 2026-11-26): an owner creates one for any user of the household
   (`POST /v1/household/members/{userId}/login-code`, table `login_code`, same format and TTL as invitations, a new one
-  revokes the user's earlier ones); `POST /v1/auth/login-code` logs a device into that account (like a password
-  login with that device name); wrong codes count in `LoginRateLimiter` (key `login_code`).
+  revokes the user's earlier ones); `POST /v1/auth/login-code` logs a device into that account; wrong codes count in
+  `LoginRateLimiter` (key `login_code`). Simplified on purpose (user, 2026-11-26: the owner vouches): `deviceName`
+  optional ("Urządzenie"), and a name a working device of the account already has gets " (2)", " (3)", … instead of
+  replacing that device's token.
 - Deleting is soft (account: `DELETE /v1/me`; household: `DELETE /v1/household`, never the default one): users get
   `deleted_at` (names free), devices revoked, household `deleted_at`, data kept. A real purge of a household's data
   is still to do (needed for the Play Store's account deletion).

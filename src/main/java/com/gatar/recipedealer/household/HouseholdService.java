@@ -43,6 +43,8 @@ public class HouseholdService {
     public static final String MEMBER = "member";
     static final String INVITATION_KEY = "invitation";
     static final String LOGIN_CODE_KEY = "login_code";
+    /** The device name of a code login without one. */
+    static final String DEFAULT_DEVICE_NAME = "Urządzenie";
     /** No 0/O, 1/I/L: codes are read aloud and typed by hand. */
     private static final String CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
     private static final int CODE_LENGTH = 8;
@@ -454,8 +456,10 @@ public class HouseholdService {
     }
 
     /**
-     * Logs a device into the account of a login code; the code then stops working. The device name works as with a
-     * password login (the same name replaces that device's token). 403 {@code invalid_login_code}.
+     * Logs a device into the account of a login code; the code then stops working. Simpler than a password login (user,
+     * 2026-11-26: the owner who made the code vouches for the device): {@code deviceName} is optional ("Urządzenie"
+     * without one) and never replaces another working device of the account: a name in use gets " (2)", " (3)", ….
+     * 403 {@code invalid_login_code}.
      */
     @Transactional
     public Session loginWithCode(String loginCode, String deviceName) {
@@ -476,7 +480,20 @@ public class HouseholdService {
             throw new ApiException(HttpStatus.FORBIDDEN, "invalid_login_code", "the login code is wrong, used or expired");
         }
         jdbc.sql("UPDATE login_code SET used_at = now() WHERE id = :id").param("id", code.get().id()).update();
-        return accounts.issue(code.get().userId(), deviceName);
+        return accounts.issue(code.get().userId(), freeDeviceName(code.get().userId(), deviceName));
+    }
+
+    /** {@code deviceName} (or the default), with a number when a working device of the user already has that name. */
+    private String freeDeviceName(UUID userId, String deviceName) {
+        String base = deviceName == null || deviceName.isBlank() ? DEFAULT_DEVICE_NAME : deviceName.strip();
+        List<String> taken = jdbc.sql("SELECT lower(device_name) FROM device_token WHERE user_id = :user AND revoked_at IS NULL")
+                .param("user", userId).query(String.class).list();
+        String name = base;
+        for (int i = 2; taken.contains(name.toLowerCase(Locale.ROOT)); i++) {
+            String suffix = " (" + i + ")";
+            name = base.substring(0, Math.min(base.length(), 100 - suffix.length())) + suffix;
+        }
+        return name;
     }
 
     // --- helpers ---

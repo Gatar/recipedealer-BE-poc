@@ -168,6 +168,16 @@ class HouseholdAccountsTest {
         // single use
         assertThat(error(loginCode(code, "Laptop"))).isEqualTo("invalid_login_code");
 
+        // the device name is optional and never replaces a working device
+        String noName = JsonPath.read(TestAuth.body(post(null, "/v1/auth/login-code", "{\"loginCode\": \"%s\"}".formatted(
+                JsonPath.<String>read(TestAuth.body(post(ownerToken, "/v1/household/members/" + memberId + "/login-code",
+                        "")), "$.code")))), "$.token");
+        assertThat(JsonPath.<String>read(TestAuth.body(get(noName, "/v1/me")), "$.deviceName")).isEqualTo("Urządzenie");
+        String again = JsonPath.read(TestAuth.body(loginCode(JsonPath.read(TestAuth.body(post(ownerToken,
+                "/v1/household/members/" + memberId + "/login-code", "")), "$.code"), "tablet")), "$.token");
+        assertThat(JsonPath.<String>read(TestAuth.body(get(again, "/v1/me")), "$.deviceName")).isEqualTo("tablet (2)");
+        assertThat(get(tablet, "/v1/me")).hasStatusOk();
+
         // not for a user of another household or an unknown one
         String other = TestAuth.enroll(mvc, "Other-" + sfx, "phone");
         String otherId = JsonPath.read(TestAuth.body(get(other, "/v1/me")), "$.userId");

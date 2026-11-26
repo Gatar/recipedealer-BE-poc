@@ -48,7 +48,8 @@ public class HouseholdController {
                               @NotEmpty String password, @NotBlank @Size(max = 100) String deviceName, String email) {
     }
 
-    public record CodeLoginRequest(@NotBlank String loginCode, @NotBlank @Size(max = 100) String deviceName) {
+    /** {@code deviceName}: optional. */
+    public record CodeLoginRequest(@NotBlank String loginCode, @Size(max = 100) String deviceName) {
     }
 
     /** {@code email}: null or blank removes it. */

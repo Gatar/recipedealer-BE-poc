@@ -128,13 +128,18 @@ class AdminAccountsTest {
     @Test
     void theAdminRenamesADevice() {
         String token = TestAuth.enroll(mvc, "Dev-" + sfx, "phone");
-        TestAuth.enroll(mvc, "Dev-" + sfx, "tablet");
+        String tablet = TestAuth.enroll(mvc, "Dev-" + sfx, "tablet");
         String deviceId = JsonPath.read(TestAuth.body(mvc.get().uri("/v1/me")
                 .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token)).exchange()), "$.deviceId");
+        String tabletId = JsonPath.read(TestAuth.body(mvc.get().uri("/v1/me")
+                .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(tablet)).exchange()), "$.deviceId");
 
         var taken = admin("PATCH", "/v1/admin/devices/{id}", "{\"deviceName\": \"TABLET\"}", deviceId);
         assertThat(taken).hasStatus(409);
         assertThat(TestAuth.body(taken)).contains("device_exists");
+        // a revoked device frees its name
+        assertThat(admin("DELETE", "/v1/admin/devices/{id}", null, tabletId)).hasStatus(204);
+        assertThat(admin("PATCH", "/v1/admin/devices/{id}", "{\"deviceName\": \"TABLET\"}", deviceId)).hasStatusOk();
         var renamed = admin("PATCH", "/v1/admin/devices/{id}", "{\"deviceName\": \"Pixel 9\"}", deviceId);
         assertThat(renamed).hasStatusOk();
         assertThat(JsonPath.<String>read(TestAuth.body(renamed), "$.deviceName")).isEqualTo("Pixel 9");

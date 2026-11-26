@@ -40,8 +40,10 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   disabled) and `POST /v1/auth/login`; both return a new device token. Admin enrollment stays, without a password and
   beyond the limit.
 - At most `MAX_USERS` (10) users per household (since 2026-11-25; before: in total). Passwords: no rules, bcrypt, at most 72 bytes (rejected, not truncated).
-- Tokens do not expire. A device = user + device name (case ignored): logging in (or enrolling) again with the same
-  name replaces that device's token and keeps its id; a new name adds a device.
+- Tokens do not expire. A working device = user + device name (case ignored; partial unique index on working devices,
+  V23): logging in (or enrolling) again with the name of a working device replaces that device's token and keeps its
+  id; a new name adds a device. A revoked device frees its name (user, 2026-11-26) and stays revoked; other users may
+  use the same names.
 - `DELETE /v1/admin/users/{userId}` is a soft delete (`deleted_at`), also for users with history: devices revoked,
   locks released, name and limit slot freed; history keeps pointing at the old user row.
 - Users without a password (admin-enrolled) set one with `PUT /v1/me/password` and their token; changing it needs
@@ -92,8 +94,9 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   (`POST /v1/household/members/{userId}/login-code`, table `login_code`, same format and TTL as invitations, a new one
   revokes the user's earlier ones); `POST /v1/auth/login-code` logs a device into that account; wrong codes count in
   `LoginRateLimiter` (key `login_code`). Simplified on purpose (user, 2026-11-26: the owner vouches): `deviceName`
-  optional ("Urządzenie"), and a name a working device of the account already has gets " (2)", " (3)", … instead of
-  replacing that device's token.
+  optional ("Urządzenie"). A code may be made for one working device of the user (`login_code.device_id`, V23): it
+  then logs in as that device (its name). Like a password login, the name of a working device replaces that device's
+  token: no duplicates (user, 2026-11-26, replacing the earlier " (2)" numbering).
 - Deleting is soft (account: `DELETE /v1/me`; household: `DELETE /v1/household`, never the default one): users get
   `deleted_at` (names free), devices revoked, household `deleted_at`, data kept. A real purge of a household's data
   is still to do (needed for the Play Store's account deletion).

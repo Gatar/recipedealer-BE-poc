@@ -165,9 +165,11 @@ for a ZIP whose manifest cannot be read.
 
 ## Accounts
 
-A user has a unique name (case is ignored) and a password. A device is identified by its user and its name (case is
-ignored): registering or logging in on a new device name adds a device; logging in again with the same name keeps the
-device (and its history) and replaces its token, so the previous token stops working. Passwords have no rules
+A user has a unique name (case is ignored) and a password. A working device is identified by its user and its name
+(case is ignored): registering or logging in on a new device name adds a device; logging in again with the name of a
+working device keeps the device (and its history) and replaces its token, so the previous token stops working. A
+revoked device frees its name: the next login with it adds a new device (since 2026-11-26). Other users may use the
+same device names. Passwords have no rules
 except: not empty, at most 72 bytes in UTF-8 (a bcrypt limit).
 
 Rate limit for failed attempts (wrong password, wrong current password, wrong registration code):
@@ -210,9 +212,9 @@ Responses:
 
 ### POST /v1/auth/login
 
-A new device token for an existing user, e.g. after reinstalling the app or on a new device. With a device name the
-user already has, it replaces that device's token (and lifts a revocation); tokens of the user's other devices stay
-valid. No token needed.
+A new device token for an existing user, e.g. after reinstalling the app or on a new device. With the name of a
+working device of the user, it replaces that device's token; tokens of the user's other devices stay valid. No token
+needed.
 
 ```json
 {"userName": "Ania", "password": "…", "deviceName": "Pixel 9"}
@@ -310,8 +312,9 @@ optional (omit it or send `null`), but required for the first user of a househol
 
 Logs a new device into an existing account with a login code an owner created (`POST
 /v1/household/members/{userId}/login-code`). No token needed. Simpler than a password login (the owner vouches for
-the device): `deviceName` is optional (`"Urządzenie"` without one) and never replaces another working device of the
-account: a name in use gets `" (2)"`, `" (3)"`, ….
+the device): a code made for a device logs in as that device (its name; `deviceName` is ignored), otherwise
+`deviceName` is optional (`"Urządzenie"` without one). As with `POST /v1/auth/login`, the name of a working device of
+the account replaces that device's token instead of adding a device.
 
 ```json
 {"loginCode": "ABCD-EFGH", "deviceName": "Tablet"}
@@ -387,9 +390,11 @@ Changes a member's role (owner). Body `{"role": "owner | member"}`.
 ### POST /v1/household/members/{userId}/login-code
 
 Creates a login code for a user of the household (owner; also for the owner itself), e.g. for a tablet. A new code
-replaces the user's earlier one. **201** `{"code": "ABCD-EFGH", "userId": "…", "userName": "Ania", "expiresAt":
-"…"}`; the code is shown only here. **403** `owner_required` · **404**: not a user of the household · **409**
-`email_required`.
+replaces the user's earlier one. Optional body `{"deviceId": "…"}` (added 2026-11-26): a working device of that user;
+the code then logs in as that device. **201** `{"code": "ABCD-EFGH", "userId": "…", "userName": "Ania", "deviceId":
+"…", "deviceName": "Pixel 9", "expiresAt": "…"}` (`deviceId`, `deviceName`: `null` without a device); the code is
+shown only here. **403** `owner_required` · **404**: not a user of the household, or not a working device of the user
+· **409** `email_required`.
 
 ### DELETE /v1/household/members/{userId}
 
@@ -400,7 +405,8 @@ Removes a user from the household (owner): it is deleted like with `DELETE /v1/m
 
 ### DELETE /v1/household/devices/{deviceId}
 
-Revokes a device: owners any device of the household, members only their own. The user can log in on it again.
+Revokes a device and frees its name: owners any device of the household, members only their own. Logging in again
+adds a new device.
 
 - **204**, also when already revoked.
 - **403** `owner_required`: a member and another user's device. **404**: not a device of the household.
@@ -768,8 +774,8 @@ HTTP Basic with the admin credentials; see Conventions for the rate limit.
 Body `{"userName": "Ania", "deviceName": "Pixel 9", "householdId": "…"}` (names 1–100 characters; `householdId`
 optional). The user is created in that household, or in the default household without `householdId`, when the name
 is new (an existing user keeps its household); shared devices are users too (e.g. `"userName": "Tablet"`). It works without a password and beyond the user
-limit; the user can set a password later with `PUT /v1/me/password`. A device name the user already has replaces that
-device's token, as a login does.
+limit; the user can set a password later with `PUT /v1/me/password`. The name of a working device of the user replaces
+that device's token, as a login does.
 
 - **201** `{token, userId, deviceId}`. The token is shown only this once.
 - **400** `invalid_request`.
@@ -832,15 +838,15 @@ that are not deleted, of all households.
 
 ### PATCH /v1/admin/devices/{deviceId}
 
-Renames a device. Body `{"deviceName": "Pixel 9"}` (1–100 characters, unique among the user's devices, case ignored:
-a login with that name takes the device over).
+Renames a device. Body `{"deviceName": "Pixel 9"}` (1–100 characters, unique among the user's working devices, case
+ignored: a login with that name takes the device over; revoked devices do not count).
 
 - **200** the device, as in `GET /v1/admin/devices`.
 - **400** `invalid_request` · **404** · **409** `device_exists`.
 
 ### DELETE /v1/admin/devices/{deviceId}
 
-Revokes the device token; the user can log in on that device again. **204** · **404**.
+Revokes the device token and frees its name; logging in again adds a new device. **204** · **404**.
 
 ### DELETE /v1/admin/users/{userId}
 

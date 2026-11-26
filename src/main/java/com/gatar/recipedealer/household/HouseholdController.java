@@ -52,6 +52,10 @@ public class HouseholdController {
     public record CodeLoginRequest(@NotBlank String loginCode, @Size(max = 100) String deviceName) {
     }
 
+    /** Optional body of a new login code: the device it logs in as. */
+    public record LoginCodeRequest(UUID deviceId) {
+    }
+
     /** {@code email}: null or blank removes it. */
     public record MeUpdate(String email) {
     }
@@ -130,8 +134,9 @@ public class HouseholdController {
     @PostMapping("/v1/household/members/{userId}/login-code")
     @ResponseStatus(HttpStatus.CREATED)
     public HouseholdService.LoginCodeView createLoginCode(@PathVariable UUID userId,
+                                                          @RequestBody(required = false) LoginCodeRequest request,
                                                           @AuthenticationPrincipal DevicePrincipal caller) {
-        return households.createLoginCode(caller, userId);
+        return households.createLoginCode(caller, userId, request == null ? null : request.deviceId());
     }
 
     @DeleteMapping("/v1/household/devices/{deviceId}")

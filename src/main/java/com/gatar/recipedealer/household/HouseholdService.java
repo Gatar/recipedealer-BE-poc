@@ -96,7 +96,8 @@ public class HouseholdService {
     }
 
     /** A login code for an existing account; shown only when it is created. */
-    public record LoginCodeView(String code, UUID userId, String userName, Instant expiresAt) {
+    public record LoginCodeView(String code, UUID userId, String userName, UUID deviceId, String deviceName,
+                                Instant expiresAt) {
     }
 
     /** {@code code} is shown only when the invitation is created. */
@@ -435,65 +436,61 @@ public class HouseholdService {
 
     /**
      * A single-use code that logs another device into an existing account of the household (owner only); codes of
-     * that user made before stop working. Works as long as an invitation ({@code invitationTtl}).
+     * that user made before stop working. Works as long as an invitation ({@code invitationTtl}). With
+     * {@code deviceId} (a working device of that user, else 404) the code logs in as that device.
      */
     @Transactional
-    public LoginCodeView createLoginCode(DevicePrincipal caller, UUID userId) {
+    public LoginCodeView createLoginCode(DevicePrincipal caller, UUID userId, UUID deviceId) {
         requireOwnerWithEmail(caller);
         requireMember(caller.householdId(), userId);
+        String deviceName = deviceId == null ? null : jdbc.sql("""
+                        SELECT device_name FROM device_token WHERE id = :id AND user_id = :user AND revoked_at IS NULL""")
+                .param("id", deviceId).param("user", userId).query(String.class).optional()
+                .orElseThrow(() -> new NotFoundException("device " + deviceId + " not found"));
         jdbc.sql("UPDATE login_code SET revoked_at = now() WHERE user_id = :user AND used_at IS NULL AND revoked_at IS NULL")
                 .param("user", userId).update();
         String code = newCode();
         Instant expiresAt = jdbc.sql("""
-                        INSERT INTO login_code (id, user_id, code_hash, created_by, expires_at)
-                        VALUES (:id, :user, :hash, :creator, now() + make_interval(secs => :seconds))
+                        INSERT INTO login_code (id, user_id, device_id, code_hash, created_by, expires_at)
+                        VALUES (:id, :user, :device, :hash, :creator, now() + make_interval(secs => :seconds))
                         RETURNING expires_at""")
-                .param("id", Ids.newId()).param("user", userId).param("hash", Hashing.sha256(code))
+                .param("id", Ids.newId()).param("user", userId).param("device", deviceId).param("hash", Hashing.sha256(code))
                 .param("creator", caller.userId()).param("seconds", (double) properties.invitationTtl().toSeconds())
                 .query((rs, n) -> Jdbc.instant(rs, "expires_at")).single();
         String name = jdbc.sql("SELECT name FROM app_user WHERE id = :id").param("id", userId).query(String.class).single();
-        return new LoginCodeView(shown(code), userId, name, expiresAt);
+        return new LoginCodeView(shown(code), userId, name, deviceId, deviceName, expiresAt);
     }
 
     /**
      * Logs a device into the account of a login code; the code then stops working. Simpler than a password login (user,
-     * 2026-11-26: the owner who made the code vouches for the device): {@code deviceName} is optional ("Urządzenie"
-     * without one) and never replaces another working device of the account: a name in use gets " (2)", " (3)", ….
-     * 403 {@code invalid_login_code}.
+     * 2026-11-26: the owner who made the code vouches for the device). A code made for a device logs in as that device
+     * (its name; {@code deviceName} is ignored). Otherwise {@code deviceName} is optional ("Urządzenie" without one).
+     * Like a password login, a working device of the user with that name gets the new token instead of a new device
+     * being added. 403 {@code invalid_login_code}.
      */
     @Transactional
     public Session loginWithCode(String loginCode, String deviceName) {
         rateLimiter.check(LOGIN_CODE_KEY);
-        record Code(UUID id, UUID userId) {
+        record Code(UUID id, UUID userId, String deviceName) {
         }
         var code = jdbc.sql("""
-                        SELECT c.id, c.user_id FROM login_code c
+                        SELECT c.id, c.user_id, d.device_name FROM login_code c
                         JOIN app_user u ON u.id = c.user_id JOIN household h ON h.id = u.household_id
+                        LEFT JOIN device_token d ON d.id = c.device_id
                         WHERE c.code_hash = :hash AND c.used_at IS NULL AND c.revoked_at IS NULL AND c.expires_at > now()
                           AND u.deleted_at IS NULL AND h.deleted_at IS NULL
                         FOR UPDATE OF c""")
                 .param("hash", Hashing.sha256(normalizeCode(loginCode)))
-                .query((rs, n) -> new Code(Jdbc.uuid(rs, "id"), Jdbc.uuid(rs, "user_id")))
+                .query((rs, n) -> new Code(Jdbc.uuid(rs, "id"), Jdbc.uuid(rs, "user_id"), rs.getString("device_name")))
                 .optional();
         if (code.isEmpty()) {
             rateLimiter.failure(LOGIN_CODE_KEY);
             throw new ApiException(HttpStatus.FORBIDDEN, "invalid_login_code", "the login code is wrong, used or expired");
         }
         jdbc.sql("UPDATE login_code SET used_at = now() WHERE id = :id").param("id", code.get().id()).update();
-        return accounts.issue(code.get().userId(), freeDeviceName(code.get().userId(), deviceName));
-    }
-
-    /** {@code deviceName} (or the default), with a number when a working device of the user already has that name. */
-    private String freeDeviceName(UUID userId, String deviceName) {
-        String base = deviceName == null || deviceName.isBlank() ? DEFAULT_DEVICE_NAME : deviceName.strip();
-        List<String> taken = jdbc.sql("SELECT lower(device_name) FROM device_token WHERE user_id = :user AND revoked_at IS NULL")
-                .param("user", userId).query(String.class).list();
-        String name = base;
-        for (int i = 2; taken.contains(name.toLowerCase(Locale.ROOT)); i++) {
-            String suffix = " (" + i + ")";
-            name = base.substring(0, Math.min(base.length(), 100 - suffix.length())) + suffix;
-        }
-        return name;
+        String name = code.get().deviceName() != null ? code.get().deviceName()
+                : deviceName == null || deviceName.isBlank() ? DEFAULT_DEVICE_NAME : deviceName;
+        return accounts.issue(code.get().userId(), name);
     }
 
     // --- helpers ---

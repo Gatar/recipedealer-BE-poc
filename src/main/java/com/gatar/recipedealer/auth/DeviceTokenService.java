@@ -60,16 +60,17 @@ public class DeviceTokenService {
     }
 
     /**
-     * A new token for the user's device with this name (case ignored): the device is created, or keeps its id and
-     * gets a new token, which revokes the previous one and lifts a revocation. The plain token is returned only here.
+     * A new token for the user's working device with this name (case ignored): that device keeps its id and gets a
+     * new token, which revokes the previous one; without such a device a new one is created. A revoked device frees
+     * its name (user, 2026-11-26) and stays revoked. The plain token is returned only here.
      */
     @Transactional
     public Enrollment issue(UUID userId, String deviceName) {
         String token = newToken();
         UUID deviceId = jdbc.sql("""
                         INSERT INTO device_token (id, user_id, device_name, token_hash) VALUES (:id, :userId, :name, :hash)
-                        ON CONFLICT (user_id, lower(device_name)) DO UPDATE
-                            SET device_name = EXCLUDED.device_name, token_hash = EXCLUDED.token_hash, revoked_at = NULL
+                        ON CONFLICT (user_id, lower(device_name)) WHERE revoked_at IS NULL DO UPDATE
+                            SET device_name = EXCLUDED.device_name, token_hash = EXCLUDED.token_hash
                         RETURNING id""")
                 .param("id", Ids.newId())
                 .param("userId", userId)
@@ -133,8 +134,9 @@ public class DeviceTokenService {
     }
 
     /**
-     * Admin: renames a device; 409 {@code device_exists} when the user has another device with that name (case
-     * ignored: a login with the name would take that device over). Returns false if the device does not exist.
+     * Admin: renames a device; 409 {@code device_exists} when another working device of the user has that name (case
+     * ignored: a login with the name would take that device over; revoked devices do not count). Returns false if the
+     * device does not exist.
      */
     @Transactional
     public boolean rename(UUID deviceId, String deviceName) {
@@ -144,10 +146,11 @@ public class DeviceTokenService {
         }
         boolean taken = jdbc.sql("""
                         SELECT EXISTS (SELECT 1 FROM device_token d JOIN device_token me ON me.user_id = d.user_id
-                                       WHERE me.id = :id AND d.id <> :id AND lower(d.device_name) = lower(:name))""")
+                                       WHERE me.id = :id AND d.id <> :id AND d.revoked_at IS NULL AND me.revoked_at IS NULL
+                                         AND lower(d.device_name) = lower(:name))""")
                 .param("id", deviceId).param("name", name).query(Boolean.class).single();
         if (taken) {
-            throw ApiException.conflict("device_exists", "the user already has a device named " + name);
+            throw ApiException.conflict("device_exists", "the user already has a working device named " + name);
         }
         return jdbc.sql("UPDATE device_token SET device_name = :name WHERE id = :id")
                 .param("name", name).param("id", deviceId).update() > 0;

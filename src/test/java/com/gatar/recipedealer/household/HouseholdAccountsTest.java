@@ -168,15 +168,37 @@ class HouseholdAccountsTest {
         // single use
         assertThat(error(loginCode(code, "Laptop"))).isEqualTo("invalid_login_code");
 
-        // the device name is optional and never replaces a working device
+        // the device name is optional
         String noName = JsonPath.read(TestAuth.body(post(null, "/v1/auth/login-code", "{\"loginCode\": \"%s\"}".formatted(
                 JsonPath.<String>read(TestAuth.body(post(ownerToken, "/v1/household/members/" + memberId + "/login-code",
                         "")), "$.code")))), "$.token");
         assertThat(JsonPath.<String>read(TestAuth.body(get(noName, "/v1/me")), "$.deviceName")).isEqualTo("Urządzenie");
+        // the name of a working device logs in as that device: no duplicate, its earlier token stops working
+        String tabletId = JsonPath.read(TestAuth.body(get(tablet, "/v1/me")), "$.deviceId");
         String again = JsonPath.read(TestAuth.body(loginCode(JsonPath.read(TestAuth.body(post(ownerToken,
                 "/v1/household/members/" + memberId + "/login-code", "")), "$.code"), "tablet")), "$.token");
-        assertThat(JsonPath.<String>read(TestAuth.body(get(again, "/v1/me")), "$.deviceName")).isEqualTo("tablet (2)");
-        assertThat(get(tablet, "/v1/me")).hasStatusOk();
+        assertThat(JsonPath.<String>read(TestAuth.body(get(again, "/v1/me")), "$.deviceId")).isEqualTo(tabletId);
+        assertThat(get(tablet, "/v1/me")).hasStatus(401);
+
+        // a code made for a device logs in as that device, whatever name the new phone sends
+        var forDevice = post(ownerToken, "/v1/household/members/" + memberId + "/login-code",
+                "{\"deviceId\": \"%s\"}".formatted(tabletId));
+        assertThat(forDevice).hasStatus(201);
+        // spelled as at the last login
+        assertThat(JsonPath.<String>read(TestAuth.body(forDevice), "$.deviceName")).isEqualTo("tablet");
+        String asDevice = JsonPath.read(TestAuth.body(loginCode(JsonPath.read(TestAuth.body(forDevice), "$.code"),
+                "Pixel")), "$.token");
+        assertThat(JsonPath.<String>read(TestAuth.body(get(asDevice, "/v1/me")), "$.deviceId")).isEqualTo(tabletId);
+        assertThat(get(again, "/v1/me")).hasStatus(401);
+        assertThat(post(ownerToken, "/v1/household/members/" + memberId + "/login-code",
+                "{\"deviceId\": \"%s\"}".formatted(UUID.randomUUID()))).hasStatus(404);
+
+        // a revoked device frees its name: the next login with it adds a new device
+        assertThat(delete(ownerToken, "/v1/household/devices/" + tabletId)).hasStatus(204);
+        String fresh = JsonPath.read(TestAuth.body(loginCode(JsonPath.read(TestAuth.body(post(ownerToken,
+                "/v1/household/members/" + memberId + "/login-code", "")), "$.code"), "Tablet")), "$.token");
+        assertThat(JsonPath.<String>read(TestAuth.body(get(fresh, "/v1/me")), "$.deviceId")).isNotEqualTo(tabletId);
+        assertThat(get(asDevice, "/v1/me")).hasStatus(401);
 
         // not for a user of another household or an unknown one
         String other = TestAuth.enroll(mvc, "Other-" + sfx, "phone");
@@ -270,11 +292,12 @@ class HouseholdAccountsTest {
         assertThat(error(delete(memberToken, "/v1/household/devices/" + ownerDevice))).isEqualTo("owner_required");
         assertThat(delete(memberToken, "/v1/household/devices/" + memberDevice)).hasStatus(204);
         assertThat(get(memberToken, "/v1/me")).hasStatus(401);
-        // the member logs in again; the owner revokes that device
+        // the member logs in again with the freed name: a new device, which the owner revokes
         String again = JsonPath.read(TestAuth.body(post(null, "/v1/auth/login", """
                 {"userName": "Member-%s", "password": "hasło", "deviceName": "Pixel"}""".formatted(sfx))), "$.token");
-        assertThat(get(again, "/v1/me")).hasStatusOk();
-        assertThat(delete(ownerToken, "/v1/household/devices/" + memberDevice)).hasStatus(204);
+        String newDevice = JsonPath.read(TestAuth.body(get(again, "/v1/me")), "$.deviceId");
+        assertThat(newDevice).isNotEqualTo(memberDevice);
+        assertThat(delete(ownerToken, "/v1/household/devices/" + newDevice)).hasStatus(204);
         assertThat(get(again, "/v1/me")).hasStatus(401);
     }
 

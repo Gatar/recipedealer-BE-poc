@@ -58,10 +58,12 @@ class AdminAccountsTest {
                 .exchange();
     }
 
+    /** With an e-mail address: the first user of an admin's household becomes its owner. */
     private MvcTestResult join(String code, String userName) {
         return mvc.post().uri("/v1/auth/join").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"invitationCode\": \"%s\", \"userName\": \"%s\", \"password\": \"x\", \"deviceName\": \"Pixel\"}"
-                        .formatted(code, userName))
+                .content("""
+                        {"invitationCode": "%s", "userName": "%s", "password": "x", "deviceName": "Pixel",
+                         "email": "%s@example.org"}""".formatted(code, userName, userName.toLowerCase()))
                 .exchange();
     }
 
@@ -94,6 +96,33 @@ class AdminAccountsTest {
         assertThat(admin("PATCH", "/v1/admin/users/{id}", "{\"password\": \"\"}", id)).hasStatus(400);
         assertThat(admin("PATCH", "/v1/admin/users/{id}", "{}", id)).hasStatus(400);
         assertThat(admin("PATCH", "/v1/admin/users/{id}", "{\"userName\": \"x\"}", UUID.randomUUID())).hasStatus(404);
+    }
+
+    @Test
+    void theAdminSetsAnEmailAddressAndOwnersKeepOne() {
+        TestAuth.enroll(mvc, "Mail-" + sfx, "phone");
+        String id = userId("Mail-" + sfx);
+        // enrolled users are members of the default household without an e-mail address
+        assertThat(error(admin("PATCH", "/v1/admin/users/{id}", "{\"role\": \"owner\"}", id)))
+                .isEqualTo("member_email_required");
+        assertThat(error(admin("PATCH", "/v1/admin/users/{id}", "{\"email\": \"zły\"}", id))).isEqualTo("invalid_request");
+
+        var changed = admin("PATCH", "/v1/admin/users/{id}",
+                "{\"email\": \"mail-" + sfx + "@example.org\", \"role\": \"owner\"}", id);
+        assertThat(changed).hasStatusOk();
+        assertThat(JsonPath.<String>read(TestAuth.body(changed), "$.email")).isEqualTo("mail-" + sfx + "@example.org");
+        assertThat(JsonPath.<String>read(TestAuth.body(changed), "$.role")).isEqualTo("owner");
+        assertThat(error(admin("PATCH", "/v1/admin/users/{id}", "{\"email\": \"\"}", id)))
+                .isEqualTo("member_email_required");
+
+        TestAuth.enroll(mvc, "Mail2-" + sfx, "phone");
+        assertThat(error(admin("PATCH", "/v1/admin/users/{id}", "{\"email\": \"MAIL-" + sfx + "@example.org\"}",
+                userId("Mail2-" + sfx)))).isEqualTo("email_exists");
+        assertThat(admin("PATCH", "/v1/admin/users/{id}", "{\"role\": \"member\", \"email\": \"\"}", id)).hasStatusOk();
+    }
+
+    private static String error(MvcTestResult result) {
+        return JsonPath.read(TestAuth.body(result), "$.error");
     }
 
     @Test

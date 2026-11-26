@@ -252,6 +252,13 @@ devices stop working and their names are free again; the data stays on the serve
 Errors of this section: **403** `owner_required` (the caller is a member, the action needs an owner), **409**
 `last_owner` (the household would be left without an owner while it has other members).
 
+**E-mail addresses.** Every owner has one, a member may (for a password reset later, by user name or address). Only
+the shape is checked (`name@domain.tld`, at most 254 characters, no verification); surrounding spaces are dropped;
+unique across all live users, case ignored (409 `email_exists`). Owners from before e-mail addresses may have none:
+their owner actions (rename, roles, removing members, invitations, login codes) answer 409 `email_required` until
+they set one with `PATCH /v1/me`; everything else keeps working. Only a user with an address becomes an owner (409
+`member_email_required`).
+
 **Claude budget.** A new household may cause at most 1 USD of Claude API costs per calendar month (UTC;
 `DEFAULT_LLM_BUDGET_USD`, the admin changes it per household; the default household has none). Extraction runs,
 taggings and translations count (admin comparisons do not). A call starts only while the month's spending is below
@@ -268,12 +275,14 @@ are `null` for no limit; `llmSpentUsd` is this month's.
 Creates a household with its owner and the owner's first device. No token needed.
 
 ```json
-{"householdName": "Dom Kowalskich", "userName": "Ania", "password": "…", "deviceName": "Pixel 9"}
+{"householdName": "Dom Kowalskich", "userName": "Ania", "password": "…", "deviceName": "Pixel 9",
+ "email": "ania@example.org"}
 ```
 
 - **201** Session (Accounts), `householdId` = the new household.
-- **400** `invalid_request`: a missing field, a name over 100 characters, an empty or too long password.
-- **409** `user_exists`: user names are unique across all households.
+- **400** `invalid_request`: a missing field (`email` included), a name over 100 characters, an empty or too long
+  password, an address of the wrong shape.
+- **409** `user_exists`: user names are unique across all households. **409** `email_exists`.
 - **409** `household_limit_reached`.
 - **429** `too_many_requests`: too many new households within the last hour.
 
@@ -283,16 +292,36 @@ Joins the household of an invitation code as a member; into a household without 
 as its owner. No token needed.
 
 ```json
-{"invitationCode": "ABCD-EFGH", "userName": "Bartek", "password": "…", "deviceName": "Pixel 9"}
+{"invitationCode": "ABCD-EFGH", "userName": "Bartek", "password": "…", "deviceName": "Pixel 9",
+ "email": "bartek@example.org"}
 ```
 
-The code is read without case, spaces or dashes. It works once, for 48 hours, while the household exists.
+The code is read without case, spaces or dashes. It works once, for 48 hours, while the household exists. `email` is
+optional (omit it or send `null`), but required for the first user of a household without an owner.
+
+- **201** Session.
+- **400** `invalid_request`: also an address of the wrong shape.
+- **403** `invalid_invitation_code`: wrong, used, revoked or expired. Counts as a failed attempt (rate limit as for
+  logins, one budget for all codes).
+- **409** `user_exists`, `user_limit_reached`, `email_exists`, `email_required` (the joiner becomes the owner).
+- **429** `too_many_requests`.
+
+### POST /v1/auth/login-code
+
+Logs a new device into an existing account with a login code an owner created (`POST
+/v1/household/members/{userId}/login-code`). No token needed. Like a login with the password: the same device name
+replaces that device's token.
+
+```json
+{"loginCode": "ABCD-EFGH", "deviceName": "Tablet"}
+```
+
+Read like an invitation code; it works once, for 48 hours, while the user and the household exist.
 
 - **201** Session.
 - **400** `invalid_request`.
-- **403** `invalid_invitation_code`: wrong, used, revoked or expired. Counts as a failed attempt (rate limit as for
-  logins, one budget for all codes).
-- **409** `user_exists`, `user_limit_reached`.
+- **403** `invalid_login_code`: wrong, used, replaced or expired. Counts as a failed attempt (key shared by all login
+  codes).
 - **429** `too_many_requests`.
 
 ### GET /v1/me
@@ -300,9 +329,19 @@ The code is read without case, spaces or dashes. It works once, for 48 hours, wh
 The token's user, device and household:
 
 ```json
-{"userId": "…", "userName": "Ania", "role": "owner | member", "hasPassword": true, "deviceId": "…",
- "deviceName": "Pixel 9", "household": HouseholdView}
+{"userId": "…", "userName": "Ania", "role": "owner | member", "hasPassword": true, "email": "ania@example.org",
+ "deviceId": "…", "deviceName": "Pixel 9", "household": HouseholdView}
 ```
+
+`email` is `null` without an address.
+
+### PATCH /v1/me
+
+Sets the caller's e-mail address. Body `{"email": "ania@example.org"}`; `null` or `""` removes it.
+
+- **200** as `GET /v1/me`.
+- **400** `invalid_request`: wrong shape.
+- **409** `email_exists`; `email_required`: an owner removing its address.
 
 ### DELETE /v1/me
 
@@ -329,11 +368,11 @@ Deletes the household with all its users (owner). Its invitations stop working.
 **200** the household's users, oldest first, with their devices that work:
 
 ```json
-[{"userId": "…", "userName": "Ania", "role": "owner", "createdAt": "…",
+[{"userId": "…", "userName": "Ania", "role": "owner", "hasEmail": true, "createdAt": "…",
   "devices": [{"deviceId": "…", "deviceName": "Pixel 9", "createdAt": "…", "lastUsedAt": "…", "current": true}]}]
 ```
 
-`current`: the caller's device.
+`current`: the caller's device. `hasEmail`: the user has an e-mail address (the address itself is not shown).
 
 ### PATCH /v1/household/members/{userId}
 
@@ -341,7 +380,15 @@ Changes a member's role (owner). Body `{"role": "owner | member"}`.
 
 - **200** the members, as `GET /v1/household/members`.
 - **400** `invalid_request`: another role. **403** `owner_required`. **404**: not a user of the household.
-- **409** `last_owner`: demoting the only owner.
+- **409** `last_owner`: demoting the only owner. `member_email_required`: the user has no e-mail address.
+  `email_required`: the caller has none.
+
+### POST /v1/household/members/{userId}/login-code
+
+Creates a login code for a user of the household (owner; also for the owner itself), e.g. for a tablet. A new code
+replaces the user's earlier one. **201** `{"code": "ABCD-EFGH", "userId": "…", "userName": "Ania", "expiresAt":
+"…"}`; the code is shown only here. **403** `owner_required` · **404**: not a user of the household · **409**
+`email_required`.
 
 ### DELETE /v1/household/members/{userId}
 
@@ -829,20 +876,22 @@ Query `months` (1–120, default 6: this month and the 5 before, UTC). **200** `
 ### GET /v1/admin/users
 
 Query `householdId` (optional), `deleted` (default `false`: only live users). **200** `[{"userId": "…", "userName":
-"Ania", "householdId": "…", "householdName": "Dom", "role": "owner", "hasPassword": true, "devices": 2, "createdAt":
-"…", "lastUsedAt": "…", "deletedAt": null}]`; `devices` counts working devices.
+"Ania", "householdId": "…", "householdName": "Dom", "role": "owner", "email": "ania@example.org", "hasPassword": true,
+"devices": 2, "createdAt": "…", "lastUsedAt": "…", "deletedAt": null}]`; `devices` counts working devices.
 
 ### PATCH /v1/admin/users/{userId}
 
-Body: any of `{"role": "owner | member", "userName": "Ania", "password": "…"}`; a missing field stays as it is, all
-changes in one transaction. The admin may also leave a household without an owner. `userName` (1–100 characters)
-must not be another live user's (case ignored); the user logs in with it from now on, its devices keep working. A
-`password` follows the account rules (not empty, at most 72 bytes) and needs no current password (a forgotten one).
+Body: any of `{"role": "owner | member", "userName": "Ania", "password": "…", "email": "ania@example.org"}`; a missing
+field stays as it is, all changes in one transaction. The admin may also leave a household without an owner.
+`userName` (1–100 characters) must not be another live user's (case ignored); the user logs in with it from now on,
+its devices keep working. A `password` follows the account rules (not empty, at most 72 bytes) and needs no current
+password (a forgotten one). `email` follows the rules of "E-mail addresses"; `""` removes it.
 
 - **200** the user, as in `GET /v1/admin/users`.
-- **400** `invalid_request`: no field, another role, a bad name or password.
+- **400** `invalid_request`: no field, another role, a bad name, password or address.
 - **404**: unknown or deleted user.
-- **409** `user_exists`.
+- **409** `user_exists`, `email_exists`; `member_email_required`: after a request that changes `role` or `email`, the
+  user would be an owner without an address.
 
 ### GET /v1/admin/recipes
 

@@ -3,8 +3,10 @@ package com.gatar.recipedealer.auth;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -25,6 +27,8 @@ public class AccountService {
     /** bcrypt uses only the first 72 bytes; longer passwords are rejected instead of silently truncated. */
     public static final int MAX_PASSWORD_BYTES = 72;
     static final String REGISTRATION_KEY = "registration";
+    /** A simple shape check (something@domain.tld); the address is not verified. */
+    private static final Pattern EMAIL = Pattern.compile("[^@\\s]+@[^@\\s.]+(\\.[^@\\s.]+)+");
 
     private final JdbcClient jdbc;
     private final DeviceTokenService tokens;
@@ -63,16 +67,19 @@ public class AccountService {
             rateLimiter.failure(REGISTRATION_KEY);
             throw new ApiException(HttpStatus.FORBIDDEN, "invalid_registration_code", "invalid registration code");
         }
-        return createUser(Households.DEFAULT_ID, "member", userName, password, deviceName);
+        return createUser(Households.DEFAULT_ID, "member", userName, password, deviceName, null);
     }
 
     /**
      * A new user with a password and its first device in a household; at most {@code MAX_USERS} users per household.
-     * 409 {@code user_exists} for a name any household uses.
+     * 409 {@code user_exists} for a name any household uses, {@code email_exists} for an e-mail another live user
+     * has; {@code email} may be null (a member), the caller checks that owners have one.
      */
     @Transactional
-    public Session createUser(UUID householdId, String role, String userName, String password, String deviceName) {
+    public Session createUser(UUID householdId, String role, String userName, String password, String deviceName,
+                              String email) {
         String hash = passwords.encode(checkedPassword(password));
+        String address = email(email);
         // Serializes registrations, so concurrent ones cannot exceed the limit.
         jdbc.sql("SELECT pg_advisory_xact_lock(hashtext('app_user_registration'))").query().singleRow();
         long users = jdbc.sql("SELECT count(*) FROM app_user WHERE deleted_at IS NULL AND household_id = :household")
@@ -81,20 +88,76 @@ public class AccountService {
             throw ApiException.conflict("user_limit_reached",
                     "the household's limit of " + registration.maxUsers() + " users is reached");
         }
+        UUID id = Ids.newId();
+        checkEmailFree(address, id);
         UUID userId = jdbc.sql("""
-                        INSERT INTO app_user (id, name, password_hash, household_id, role)
-                        VALUES (:id, :name, :hash, :household, :role)
+                        INSERT INTO app_user (id, name, password_hash, household_id, role, email)
+                        VALUES (:id, :name, :hash, :household, :role, :email)
                         ON CONFLICT (lower(name)) WHERE deleted_at IS NULL DO NOTHING
                         RETURNING id""")
-                .param("id", Ids.newId())
+                .param("id", id)
                 .param("household", householdId)
                 .param("role", role)
                 .param("name", userName.strip())
                 .param("hash", hash)
+                .param("email", address)
                 .query(UUID.class)
                 .optional()
                 .orElseThrow(() -> ApiException.conflict("user_exists", "user " + userName.strip() + " already exists"));
         return session(tokens.issue(userId, deviceName), userName.strip(), householdId);
+    }
+
+    /** A new token for an existing user's device with this name (a login code); it replaces that device's token. */
+    public Session issue(UUID userId, String deviceName) {
+        Account account = account("id = :id AND deleted_at IS NULL", "id", userId)
+                .orElseThrow(() -> new NotFoundException("user " + userId + " not found"));
+        return session(tokens.issue(userId, deviceName), account.name(), account.householdId());
+    }
+
+    /** The user's e-mail address, or null. */
+    public String email(UUID userId) {
+        return jdbc.sql("SELECT email FROM app_user WHERE id = :id").param("id", userId).query(String.class)
+                .list().stream().filter(Objects::nonNull).findFirst().orElse(null);
+    }
+
+    /**
+     * Sets or (null / blank) removes a live user's e-mail address; 400 for a malformed one, 409 {@code email_exists}
+     * for one another live user has, 404 for an unknown user. Owner rules are the caller's.
+     */
+    @Transactional
+    public void setEmail(UUID userId, String email) {
+        String address = email(email);
+        jdbc.sql("SELECT pg_advisory_xact_lock(hashtext('app_user_registration'))").query().singleRow();
+        checkEmailFree(address, userId);
+        if (jdbc.sql("UPDATE app_user SET email = :email WHERE id = :id AND deleted_at IS NULL")
+                .param("email", address).param("id", userId).update() == 0) {
+            throw new NotFoundException("user " + userId + " not found");
+        }
+    }
+
+    /** Stripped, or null for null / blank; 400 unless it looks like {@code name@domain.tld} (not verified). */
+    public static String email(String email) {
+        String address = email == null ? "" : email.strip();
+        if (address.isEmpty()) {
+            return null;
+        }
+        if (address.length() > 254 || !EMAIL.matcher(address).matches()) {
+            throw ApiException.badRequest("email must look like name@example.org");
+        }
+        return address;
+    }
+
+    private void checkEmailFree(String address, UUID userId) {
+        if (address == null) {
+            return;
+        }
+        boolean taken = jdbc.sql("""
+                        SELECT EXISTS (SELECT 1 FROM app_user
+                                       WHERE lower(email) = lower(:email) AND deleted_at IS NULL AND id <> :id)""")
+                .param("email", address).param("id", userId).query(Boolean.class).single();
+        if (taken) {
+            throw ApiException.conflict("email_exists", "another account uses this e-mail address");
+        }
     }
 
     /** A new token for the user's device with this name; it replaces the device's previous token. */

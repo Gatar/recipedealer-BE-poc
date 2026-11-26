@@ -147,7 +147,8 @@ public class AdminDashboardController {
 
     @JsonInclude(JsonInclude.Include.ALWAYS)
     public record AdminUser(UUID userId, String userName, UUID householdId, String householdName, String role,
-                            boolean hasPassword, int devices, Instant createdAt, Instant lastUsedAt, Instant deletedAt) {
+                            String email, boolean hasPassword, int devices, Instant createdAt, Instant lastUsedAt,
+                            Instant deletedAt) {
     }
 
     /** Users, newest first; deleted ones only with {@code deleted=true}. */
@@ -155,7 +156,7 @@ public class AdminDashboardController {
     public List<AdminUser> users(@RequestParam(required = false) UUID householdId,
                                  @RequestParam(defaultValue = "false") boolean deleted) {
         return jdbc.sql("""
-                        SELECT u.id, u.name, u.household_id, h.name AS household_name, u.role,
+                        SELECT u.id, u.name, u.household_id, h.name AS household_name, u.role, u.email,
                                u.password_hash IS NOT NULL AS has_password, u.created_at, u.deleted_at,
                                (SELECT count(*) FROM device_token d WHERE d.user_id = u.id AND d.revoked_at IS NULL) AS devices,
                                (SELECT max(d.last_used_at) FROM device_token d WHERE d.user_id = u.id) AS last_used_at
@@ -166,25 +167,31 @@ public class AdminDashboardController {
                         LIMIT %d""".formatted(MAX_ROWS))
                 .param("household", householdId).param("deleted", deleted)
                 .query((rs, n) -> new AdminUser(Jdbc.uuid(rs, "id"), rs.getString("name"), Jdbc.uuid(rs, "household_id"),
-                        rs.getString("household_name"), rs.getString("role"), rs.getBoolean("has_password"),
+                        rs.getString("household_name"), rs.getString("role"), rs.getString("email"),
+                        rs.getBoolean("has_password"),
                         rs.getInt("devices"), Jdbc.instant(rs, "created_at"), Jdbc.instant(rs, "last_used_at"),
                         Jdbc.instant(rs, "deleted_at")))
                 .list();
     }
 
-    /** Any of the fields; a missing one stays as it is. */
-    public record UserUpdate(String role, String userName, String password) {
+    /** Any of the fields; a missing one stays as it is; {@code email} "" removes the address. */
+    public record UserUpdate(String role, String userName, String password, String email) {
     }
 
     /**
-     * Changes a live user: role (the admin may also leave a household without an owner), name (unique across
-     * households) and password (no current password needed). In one transaction: all or nothing.
+     * Changes a live user: e-mail (unique), role (the admin may also leave a household without an owner, but an owner
+     * must have an e-mail address: 409 {@code member_email_required}), name (unique across households) and password
+     * (no current password needed). In one transaction: all or nothing.
      */
     @PatchMapping("/users/{userId}")
     @Transactional
     public AdminUser updateUser(@PathVariable UUID userId, @RequestBody UserUpdate request) {
-        if (request == null || (request.role() == null && request.userName() == null && request.password() == null)) {
-            throw ApiException.badRequest("give role, userName or password");
+        if (request == null || (request.role() == null && request.userName() == null && request.password() == null
+                && request.email() == null)) {
+            throw ApiException.badRequest("give role, userName, password or email");
+        }
+        if (request.email() != null) {
+            accounts.setEmail(userId, request.email());
         }
         if (request.role() != null) {
             if (!HouseholdService.OWNER.equals(request.role()) && !HouseholdService.MEMBER.equals(request.role())) {
@@ -202,8 +209,14 @@ public class AdminDashboardController {
         if (request.password() != null) {
             accounts.resetPassword(userId, request.password());
         }
-        return users(null, false).stream().filter(u -> u.userId().equals(userId)).findFirst()
+        AdminUser user = users(null, false).stream().filter(u -> u.userId().equals(userId)).findFirst()
                 .orElseThrow(() -> new NotFoundException("user " + userId + " not found"));
+        // only when this request touches role or e-mail: owners from before e-mail addresses keep working
+        if ((request.role() != null || request.email() != null) && HouseholdService.OWNER.equals(user.role())
+                && user.email() == null) {
+            throw ApiException.conflict("member_email_required", "an owner must have an e-mail address");
+        }
+        return user;
     }
 
     // --- recipes ---

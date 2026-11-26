@@ -103,7 +103,8 @@ class AdminDashboardTest {
         assertThat(ids).hasSize(1);
         var changed = mvc.patch().uri("/v1/admin/users/{id}", ids.getFirst())
                 .header(HttpHeaders.AUTHORIZATION, TestAuth.adminBasic())
-                .contentType(MediaType.APPLICATION_JSON).content("{\"role\": \"owner\"}").exchange();
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"role\": \"owner\", \"email\": \"dash-" + sfx + "@example.org\"}").exchange();
         assertThat(changed).hasStatusOk();
         assertThat(JsonPath.<String>read(TestAuth.body(changed), "$.role")).isEqualTo("owner");
         assertThat(mvc.patch().uri("/v1/admin/users/{id}", ids.getFirst())

@@ -42,6 +42,7 @@ public class HouseholdService {
     public static final String OWNER = "owner";
     public static final String MEMBER = "member";
     static final String INVITATION_KEY = "invitation";
+    static final String LOGIN_CODE_KEY = "login_code";
     /** No 0/O, 1/I/L: codes are read aloud and typed by hand. */
     private static final String CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
     private static final int CODE_LENGTH = 8;
@@ -78,14 +79,22 @@ public class HouseholdService {
                                 int userCount, BigDecimal llmBudgetUsd, BigDecimal llmSpentUsd, Instant createdAt) {
     }
 
-    public record MeView(UUID userId, String userName, String role, boolean hasPassword, UUID deviceId,
+    /** {@code email} null when the user has none (an owner without one must set it before owner actions). */
+    @JsonInclude(JsonInclude.Include.ALWAYS)
+    public record MeView(UUID userId, String userName, String role, boolean hasPassword, String email, UUID deviceId,
                          String deviceName, HouseholdView household) {
     }
 
     public record DeviceView(UUID deviceId, String deviceName, Instant createdAt, Instant lastUsedAt, boolean current) {
     }
 
-    public record MemberView(UUID userId, String userName, String role, Instant createdAt, List<DeviceView> devices) {
+    /** {@code hasEmail}: only users with an e-mail address can become owners (the address itself is not shown). */
+    public record MemberView(UUID userId, String userName, String role, boolean hasEmail, Instant createdAt,
+                             List<DeviceView> devices) {
+    }
+
+    /** A login code for an existing account; shown only when it is created. */
+    public record LoginCodeView(String code, UUID userId, String userName, Instant expiresAt) {
     }
 
     /** {@code code} is shown only when the invitation is created. */
@@ -97,8 +106,12 @@ public class HouseholdService {
 
     /** A new household with its owner and the owner's first device. */
     @Transactional
-    public Session createHousehold(String householdName, String userName, String password, String deviceName) {
+    public Session createHousehold(String householdName, String userName, String password, String deviceName,
+                                   String email) {
         String name = name(householdName);
+        if (AccountService.email(email) == null) {
+            throw ApiException.badRequest("email is required: the owner of a household must have an e-mail address");
+        }
         jdbc.sql("SELECT pg_advisory_xact_lock(hashtext('household_registration'))").query().singleRow();
         long households = jdbc.sql("SELECT count(*) FROM household WHERE deleted_at IS NULL").query(Long.class).single();
         if (households >= properties.maxHouseholds()) {
@@ -113,7 +126,7 @@ public class HouseholdService {
         jdbc.sql("INSERT INTO household (id, name, recipe_limit, llm_budget_usd) VALUES (:id, :name, :limit, :budget)")
                 .param("id", householdId).param("name", name).param("limit", properties.defaultRecipeLimit())
                 .param("budget", properties.defaultLlmBudgetUsd()).update();
-        return accounts.createUser(householdId, OWNER, userName, password, deviceName);
+        return accounts.createUser(householdId, OWNER, userName, password, deviceName, email);
     }
 
     /**
@@ -121,7 +134,7 @@ public class HouseholdService {
      * admin created) makes the new user its owner.
      */
     @Transactional
-    public Session join(String invitationCode, String userName, String password, String deviceName) {
+    public Session join(String invitationCode, String userName, String password, String deviceName, String email) {
         rateLimiter.check(INVITATION_KEY);
         record Invitation(UUID id, UUID householdId) {
         }
@@ -140,7 +153,12 @@ public class HouseholdService {
         }
         lockHousehold(invitation.get().householdId());
         String role = owners(invitation.get().householdId()) == 0 ? OWNER : MEMBER;
-        Session session = accounts.createUser(invitation.get().householdId(), role, userName, password, deviceName);
+        if (OWNER.equals(role) && AccountService.email(email) == null) {
+            throw ApiException.conflict("email_required",
+                    "the first user of this household becomes its owner and needs an e-mail address");
+        }
+        Session session = accounts.createUser(invitation.get().householdId(), role, userName, password, deviceName,
+                email);
         jdbc.sql("UPDATE household_invitation SET used_at = now(), used_by = :user WHERE id = :id")
                 .param("user", session.userId()).param("id", invitation.get().id()).update();
         return session;
@@ -150,13 +168,27 @@ public class HouseholdService {
 
     @Transactional(readOnly = true)
     public MeView me(DevicePrincipal caller) {
-        record User(String role, boolean hasPassword) {
+        record User(String role, boolean hasPassword, String email) {
         }
-        User user = jdbc.sql("SELECT role, password_hash IS NOT NULL AS has_password FROM app_user WHERE id = :id")
+        User user = jdbc.sql("SELECT role, password_hash IS NOT NULL AS has_password, email FROM app_user WHERE id = :id")
                 .param("id", caller.userId())
-                .query((rs, n) -> new User(rs.getString("role"), rs.getBoolean("has_password"))).single();
-        return new MeView(caller.userId(), caller.userName(), user.role(), user.hasPassword(), caller.deviceId(),
-                caller.deviceName(), household(caller.householdId()));
+                .query((rs, n) -> new User(rs.getString("role"), rs.getBoolean("has_password"), rs.getString("email")))
+                .single();
+        return new MeView(caller.userId(), caller.userName(), user.role(), user.hasPassword(), user.email(),
+                caller.deviceId(), caller.deviceName(), household(caller.householdId()));
+    }
+
+    /**
+     * Sets or (null / blank) removes the caller's e-mail address; an owner cannot remove it (409
+     * {@code email_required}).
+     */
+    @Transactional
+    public MeView updateMe(DevicePrincipal caller, String email) {
+        if (AccountService.email(email) == null && OWNER.equals(role(caller.userId()))) {
+            throw ApiException.conflict("email_required", "an owner must keep an e-mail address");
+        }
+        accounts.setEmail(caller.userId(), email);
+        return me(caller);
     }
 
     @Transactional(readOnly = true)
@@ -177,7 +209,7 @@ public class HouseholdService {
 
     @Transactional
     public HouseholdView rename(DevicePrincipal caller, String householdName) {
-        requireOwner(caller);
+        requireOwnerWithEmail(caller);
         jdbc.sql("UPDATE household SET name = :name WHERE id = :id")
                 .param("name", name(householdName)).param("id", caller.householdId()).update();
         return household(caller.householdId());
@@ -255,13 +287,13 @@ public class HouseholdService {
     public List<MemberView> members(DevicePrincipal caller) {
         Map<UUID, MemberView> members = new LinkedHashMap<>();
         jdbc.sql("""
-                        SELECT id, name, role, created_at FROM app_user
+                        SELECT id, name, role, email IS NOT NULL AS has_email, created_at FROM app_user
                         WHERE household_id = :household AND deleted_at IS NULL ORDER BY created_at, name""")
                 .param("household", caller.householdId())
                 .query(rs -> {
                     UUID id = Jdbc.uuid(rs, "id");
                     members.put(id, new MemberView(id, rs.getString("name"), rs.getString("role"),
-                            Jdbc.instant(rs, "created_at"), new ArrayList<>()));
+                            rs.getBoolean("has_email"), Jdbc.instant(rs, "created_at"), new ArrayList<>()));
                 });
         jdbc.sql("""
                         SELECT d.id, d.user_id, d.device_name, d.created_at, d.last_used_at
@@ -277,10 +309,13 @@ public class HouseholdService {
         return List.copyOf(members.values());
     }
 
-    /** Owner only; the last owner cannot become a member (409 {@code last_owner}). */
+    /**
+     * Owner only; the last owner cannot become a member (409 {@code last_owner}), a user without an e-mail address
+     * cannot become an owner (409 {@code member_email_required}).
+     */
     @Transactional
     public List<MemberView> setRole(DevicePrincipal caller, UUID userId, String role) {
-        requireOwner(caller);
+        requireOwnerWithEmail(caller);
         if (!OWNER.equals(role) && !MEMBER.equals(role)) {
             throw ApiException.badRequest("role must be owner or member");
         }
@@ -289,6 +324,9 @@ public class HouseholdService {
         if (MEMBER.equals(role) && OWNER.equals(role(userId)) && owners(caller.householdId()) == 1) {
             throw ApiException.conflict("last_owner", "the household needs at least one owner");
         }
+        if (OWNER.equals(role) && accounts.email(userId) == null) {
+            throw ApiException.conflict("member_email_required", "only a user with an e-mail address can become an owner");
+        }
         jdbc.sql("UPDATE app_user SET role = :role WHERE id = :id").param("role", role).param("id", userId).update();
         return members(caller);
     }
@@ -296,7 +334,7 @@ public class HouseholdService {
     /** Owner only; a user removes itself with {@code DELETE /v1/me}. */
     @Transactional
     public void removeMember(DevicePrincipal caller, UUID userId) {
-        requireOwner(caller);
+        requireOwnerWithEmail(caller);
         if (userId.equals(caller.userId())) {
             throw ApiException.badRequest("use DELETE /v1/me to delete your own account");
         }
@@ -323,7 +361,7 @@ public class HouseholdService {
 
     @Transactional
     public InvitationView invite(DevicePrincipal caller) {
-        requireOwner(caller);
+        requireOwnerWithEmail(caller);
         return createInvitation(caller.householdId(), caller.userId(), caller.userName());
     }
 
@@ -338,21 +376,17 @@ public class HouseholdService {
         if (!live) {
             throw new NotFoundException("household " + householdId + " not found");
         }
-        StringBuilder code = new StringBuilder(CODE_LENGTH);
-        for (int i = 0; i < CODE_LENGTH; i++) {
-            code.append(CODE_ALPHABET.charAt(random.nextInt(CODE_ALPHABET.length())));
-        }
+        String code = newCode();
         UUID id = Ids.newId();
         Instant expiresAt = jdbc.sql("""
                         INSERT INTO household_invitation (id, household_id, code_hash, created_by, expires_at)
                         VALUES (:id, :household, :hash, :user, now() + make_interval(secs => :seconds))
                         RETURNING expires_at""")
                 .param("id", id).param("household", householdId)
-                .param("hash", Hashing.sha256(code.toString())).param("user", createdBy)
+                .param("hash", Hashing.sha256(code)).param("user", createdBy)
                 .param("seconds", (double) properties.invitationTtl().toSeconds())
                 .query((rs, n) -> Jdbc.instant(rs, "expires_at")).single();
-        String shown = code.substring(0, CODE_LENGTH / 2) + "-" + code.substring(CODE_LENGTH / 2);
-        return new InvitationView(id, shown, createdByName, Instant.now(), expiresAt);
+        return new InvitationView(id, shown(code), createdByName, Instant.now(), expiresAt);
     }
 
     /** Invitations that still work, newest first (owner only). */
@@ -395,7 +429,68 @@ public class HouseholdService {
         }
     }
 
+    // --- login codes ---
+
+    /**
+     * A single-use code that logs another device into an existing account of the household (owner only); codes of
+     * that user made before stop working. Works as long as an invitation ({@code invitationTtl}).
+     */
+    @Transactional
+    public LoginCodeView createLoginCode(DevicePrincipal caller, UUID userId) {
+        requireOwnerWithEmail(caller);
+        requireMember(caller.householdId(), userId);
+        jdbc.sql("UPDATE login_code SET revoked_at = now() WHERE user_id = :user AND used_at IS NULL AND revoked_at IS NULL")
+                .param("user", userId).update();
+        String code = newCode();
+        Instant expiresAt = jdbc.sql("""
+                        INSERT INTO login_code (id, user_id, code_hash, created_by, expires_at)
+                        VALUES (:id, :user, :hash, :creator, now() + make_interval(secs => :seconds))
+                        RETURNING expires_at""")
+                .param("id", Ids.newId()).param("user", userId).param("hash", Hashing.sha256(code))
+                .param("creator", caller.userId()).param("seconds", (double) properties.invitationTtl().toSeconds())
+                .query((rs, n) -> Jdbc.instant(rs, "expires_at")).single();
+        String name = jdbc.sql("SELECT name FROM app_user WHERE id = :id").param("id", userId).query(String.class).single();
+        return new LoginCodeView(shown(code), userId, name, expiresAt);
+    }
+
+    /**
+     * Logs a device into the account of a login code; the code then stops working. The device name works as with a
+     * password login (the same name replaces that device's token). 403 {@code invalid_login_code}.
+     */
+    @Transactional
+    public Session loginWithCode(String loginCode, String deviceName) {
+        rateLimiter.check(LOGIN_CODE_KEY);
+        record Code(UUID id, UUID userId) {
+        }
+        var code = jdbc.sql("""
+                        SELECT c.id, c.user_id FROM login_code c
+                        JOIN app_user u ON u.id = c.user_id JOIN household h ON h.id = u.household_id
+                        WHERE c.code_hash = :hash AND c.used_at IS NULL AND c.revoked_at IS NULL AND c.expires_at > now()
+                          AND u.deleted_at IS NULL AND h.deleted_at IS NULL
+                        FOR UPDATE OF c""")
+                .param("hash", Hashing.sha256(normalizeCode(loginCode)))
+                .query((rs, n) -> new Code(Jdbc.uuid(rs, "id"), Jdbc.uuid(rs, "user_id")))
+                .optional();
+        if (code.isEmpty()) {
+            rateLimiter.failure(LOGIN_CODE_KEY);
+            throw new ApiException(HttpStatus.FORBIDDEN, "invalid_login_code", "the login code is wrong, used or expired");
+        }
+        jdbc.sql("UPDATE login_code SET used_at = now() WHERE id = :id").param("id", code.get().id()).update();
+        return accounts.issue(code.get().userId(), deviceName);
+    }
+
     // --- helpers ---
+
+    /**
+     * {@link #requireOwner}, and 409 {@code email_required} while the owner has no e-mail address (owners from before
+     * e-mail addresses set one first).
+     */
+    private void requireOwnerWithEmail(DevicePrincipal caller) {
+        requireOwner(caller);
+        if (accounts.email(caller.userId()) == null) {
+            throw ApiException.conflict("email_required", "set your e-mail address first: owners must have one");
+        }
+    }
 
     /** 403 {@code owner_required} unless the caller is an owner of its household. */
     private void requireOwner(DevicePrincipal caller) {
@@ -436,6 +531,19 @@ public class HouseholdService {
     private void revokeInvitations(UUID householdId) {
         jdbc.sql("UPDATE household_invitation SET revoked_at = now() WHERE household_id = :id AND revoked_at IS NULL AND used_at IS NULL")
                 .param("id", householdId).update();
+    }
+
+    private String newCode() {
+        StringBuilder code = new StringBuilder(CODE_LENGTH);
+        for (int i = 0; i < CODE_LENGTH; i++) {
+            code.append(CODE_ALPHABET.charAt(random.nextInt(CODE_ALPHABET.length())));
+        }
+        return code.toString();
+    }
+
+    /** {@code ABCD-EFGH}: easier to read aloud and type. */
+    private static String shown(String code) {
+        return code.substring(0, CODE_LENGTH / 2) + "-" + code.substring(CODE_LENGTH / 2);
     }
 
     private static String normalizeCode(String code) {

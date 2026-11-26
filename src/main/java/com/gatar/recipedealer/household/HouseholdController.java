@@ -37,13 +37,22 @@ public class HouseholdController {
         this.households = households;
     }
 
+    /** {@code email}: required, the owner's. */
     public record CreateRequest(@NotBlank @Size(max = 100) String householdName,
                                 @NotBlank @Size(max = 100) String userName, @NotEmpty String password,
-                                @NotBlank @Size(max = 100) String deviceName) {
+                                @NotBlank @Size(max = 100) String deviceName, String email) {
     }
 
+    /** {@code email}: optional, required when the new user becomes the owner of a household without one. */
     public record JoinRequest(@NotBlank String invitationCode, @NotBlank @Size(max = 100) String userName,
-                              @NotEmpty String password, @NotBlank @Size(max = 100) String deviceName) {
+                              @NotEmpty String password, @NotBlank @Size(max = 100) String deviceName, String email) {
+    }
+
+    public record CodeLoginRequest(@NotBlank String loginCode, @NotBlank @Size(max = 100) String deviceName) {
+    }
+
+    /** {@code email}: null or blank removes it. */
+    public record MeUpdate(String email) {
     }
 
     public record RenameRequest(@NotBlank @Size(max = 100) String name) {
@@ -56,18 +65,30 @@ public class HouseholdController {
     @ResponseStatus(HttpStatus.CREATED)
     public Session create(@Valid @RequestBody CreateRequest request) {
         return households.createHousehold(request.householdName(), request.userName(), request.password(),
-                request.deviceName());
+                request.deviceName(), request.email());
     }
 
     @PostMapping("/v1/auth/join")
     @ResponseStatus(HttpStatus.CREATED)
     public Session join(@Valid @RequestBody JoinRequest request) {
-        return households.join(request.invitationCode(), request.userName(), request.password(), request.deviceName());
+        return households.join(request.invitationCode(), request.userName(), request.password(), request.deviceName(),
+                request.email());
+    }
+
+    @PostMapping("/v1/auth/login-code")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Session loginWithCode(@Valid @RequestBody CodeLoginRequest request) {
+        return households.loginWithCode(request.loginCode(), request.deviceName());
     }
 
     @GetMapping("/v1/me")
     public HouseholdService.MeView me(@AuthenticationPrincipal DevicePrincipal caller) {
         return households.me(caller);
+    }
+
+    @PatchMapping("/v1/me")
+    public HouseholdService.MeView updateMe(@RequestBody MeUpdate request, @AuthenticationPrincipal DevicePrincipal caller) {
+        return households.updateMe(caller, request.email());
     }
 
     @DeleteMapping("/v1/me")
@@ -103,6 +124,13 @@ public class HouseholdController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeMember(@PathVariable UUID userId, @AuthenticationPrincipal DevicePrincipal caller) {
         households.removeMember(caller, userId);
+    }
+
+    @PostMapping("/v1/household/members/{userId}/login-code")
+    @ResponseStatus(HttpStatus.CREATED)
+    public HouseholdService.LoginCodeView createLoginCode(@PathVariable UUID userId,
+                                                          @AuthenticationPrincipal DevicePrincipal caller) {
+        return households.createLoginCode(caller, userId);
     }
 
     @DeleteMapping("/v1/household/devices/{deviceId}")

@@ -183,10 +183,10 @@
                 "households"
               ]
             },
-            "description": "A household with its owner and the owner's first device. 201 Session; 409 user_exists / household_limit_reached; 429 too_many_requests.",
+            "description": "A household with its owner and the owner's first device; email required. 201 Session; 409 user_exists / email_exists / household_limit_reached; 429 too_many_requests.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"householdName\": \"Dom\",\n  \"userName\": \"{{userName}}\",\n  \"password\": \"{{password}}\",\n  \"deviceName\": \"{{deviceName}}\"\n}",
+              "raw": "{\n  \"householdName\": \"Dom\",\n  \"userName\": \"{{userName}}\",\n  \"password\": \"{{password}}\",\n  \"deviceName\": \"{{deviceName}}\",\n  \"email\": \"owner@example.org\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -238,7 +238,7 @@
                 "join"
               ]
             },
-            "description": "Joins the household of a single-use code as a member. 201 Session; 403 invalid_invitation_code; 409 user_exists / user_limit_reached; 429 too_many_requests.",
+            "description": "Joins the household of a single-use code as a member; optional email (required for the first user of a household without an owner). 201 Session; 403 invalid_invitation_code; 409 user_exists / user_limit_reached / email_exists / email_required; 429 too_many_requests.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"invitationCode\": \"{{invitationCode}}\",\n  \"userName\": \"{{userName}}\",\n  \"password\": \"{{password}}\",\n  \"deviceName\": \"{{deviceName}}\"\n}",
@@ -266,6 +266,123 @@
                   "    if (body.householdId !== undefined && body.householdId !== null) pm.collectionVariables.set('householdId', body.householdId);",
                   "    if (body.invitationId !== undefined && body.invitationId !== null) pm.collectionVariables.set('invitationId', body.invitationId);",
                   "    if (body.code !== undefined && body.code !== null) pm.collectionVariables.set('invitationCode', body.code);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Log in with a login code",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/login-code",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "login-code"
+              ]
+            },
+            "description": "A new device for an existing account, with a single-use code an owner created. 201 Session; 403 invalid_login_code; 429 too_many_requests.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loginCode\": \"{{loginCode}}\",\n  \"deviceName\": \"{{deviceName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.token) pm.collectionVariables.set('deviceToken', body.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Set my e-mail",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "me"
+              ]
+            },
+            "description": "Sets the caller's e-mail address (null or \"\" removes it). 200 as Me; 400 invalid_request; 409 email_exists / email_required (an owner removing it).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ania@example.org\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create login code",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/household/members/{{userId}}/login-code",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "household",
+                "members",
+                "{{userId}}",
+                "login-code"
+              ]
+            },
+            "description": "A single-use login code for a user of the household (owner), 48 h; replaces the user's earlier code. 201 {code, userId, userName, expiresAt}; 403 owner_required; 404; 409 email_required."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300 && pm.response.text()) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.code) pm.collectionVariables.set('loginCode', body.code);",
                   "}"
                 ]
               }
@@ -2636,6 +2753,11 @@
     },
     {
       "key": "invitationCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "loginCode",
       "value": "",
       "type": "string"
     }

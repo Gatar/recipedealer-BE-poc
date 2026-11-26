@@ -82,6 +82,16 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   stored, 48 h); `POST /v1/auth/join`; wrong codes count in `LoginRateLimiter` (key `invitation`).
 - Roles `owner | member`; owner-only: rename, delete household, roles, remove members, invitations; members revoke
   only their own devices. A household always keeps an owner while it has members (409 `last_owner`).
+- E-mail addresses (user, 2026-11-26; for a password reset later by user name or address): `app_user.email` (V22),
+  required for every owner, optional for members; shape check only (`AccountService.EMAIL`), no verification; unique
+  among live users, case ignored (partial unique index). Only a user with an address becomes an owner (409
+  `member_email_required`, also in the admin's user edit). Owners from before V22 keep working: their owner actions
+  (`HouseholdService.requireOwnerWithEmail`: rename, roles, removing members, invitations, login codes) are 409
+  `email_required` until they set one with `PATCH /v1/me`; deleting the household and devices stay possible.
+- Login codes (user, 2026-11-26): an owner creates one for any user of the household
+  (`POST /v1/household/members/{userId}/login-code`, table `login_code`, same format and TTL as invitations, a new one
+  revokes the user's earlier ones); `POST /v1/auth/login-code` logs a device into that account (like a password
+  login with that device name); wrong codes count in `LoginRateLimiter` (key `login_code`).
 - Deleting is soft (account: `DELETE /v1/me`; household: `DELETE /v1/household`, never the default one): users get
   `deleted_at` (names free), devices revoked, household `deleted_at`, data kept. A real purge of a household's data
   is still to do (needed for the Play Store's account deletion).

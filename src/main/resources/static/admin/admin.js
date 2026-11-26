@@ -185,12 +185,23 @@ async function loadUsers() {
     const household = document.querySelector('.household-filter[data-for=users]').value;
     const deleted = document.getElementById('users-deleted').checked;
     const users = await api('/users?deleted=' + deleted + (household ? '&householdId=' + household : ''));
-    table('users-table', ['Użytkownik', 'Dom', 'Rola', 'Hasło', ['Urządzenia', 'num'], 'Ostatnio aktywny', 'Utworzony', ''],
+    table('users-table', ['Użytkownik', 'Dom', 'Rola', 'E-mail', 'Hasło', ['Urządzenia', 'num'], 'Ostatnio aktywny', 'Utworzony', ''],
         users.map(u => {
+            // an owner must have an e-mail address: the server answers 409 member_email_required otherwise
             const role = el('select', {disabled: !!u.deletedAt, onchange: async () => {
                 await run(() => api('/users/' + u.userId, {method: 'PATCH', body: {role: role.value}}),
                     u.userName + ': rola ' + role.value + '.');
+                await refresh('users');
             }}, ['owner', 'member'].map(r => el('option', {value: r, selected: r === u.role}, r === 'owner' ? 'właściciel' : 'członek')));
+            const email = el('input', {class: 'name', type: 'email', value: u.email || '', maxlength: '254',
+                placeholder: 'brak', disabled: !!u.deletedAt});
+            const saveEmail = el('button', {class: 'secondary', disabled: !!u.deletedAt, onclick: async () => {
+                const value = email.value.trim();
+                if (value === (u.email || '')) return;
+                await run(() => api('/users/' + u.userId, {method: 'PATCH', body: {email: value}}),
+                    u.userName + ': ' + (value ? 'e-mail ' + value : 'bez e-maila') + '.');
+                await refresh('users');
+            }}, 'Zapisz');
             const remove = el('button', {class: 'danger', onclick: async () => {
                 if (!confirm('Usunąć użytkownika „' + u.userName + '”? Jego urządzenia przestaną działać, historia zostaje.')) return;
                 await run(() => api('/users/' + u.userId, {method: 'DELETE'}), 'Usunięto ' + u.userName + '.');
@@ -207,6 +218,7 @@ async function loadUsers() {
             const password = el('button', {class: 'secondary', onclick: () => askPassword(u)}, 'Hasło…');
             return el('tr', {class: u.deletedAt ? 'deleted' : null},
                 el('td', {}, u.deletedAt ? u.userName : name), el('td', {}, u.householdName), el('td', {}, role),
+                el('td', {class: 'nowrap'}, u.deletedAt ? (u.email || '–') : [email, ' ', saveEmail]),
                 el('td', {}, u.hasPassword ? 'tak' : 'nie'), el('td', {class: 'num'}, u.devices),
                 el('td', {class: 'nowrap'}, date(u.lastUsedAt)), el('td', {class: 'nowrap'}, date(u.createdAt)),
                 el('td', {class: 'actions'}, u.deletedAt ? 'usunięty ' + date(u.deletedAt) : [rename, password, remove]));

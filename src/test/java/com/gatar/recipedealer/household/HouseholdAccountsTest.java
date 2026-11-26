@@ -61,8 +61,9 @@ class HouseholdAccountsTest {
         rateLimiter.reset();
         sfx = UUID.randomUUID().toString().substring(0, 8);
         var created = post(null, "/v1/auth/households", """
-                {"householdName": "Dom %s", "userName": "Owner-%s", "password": "hasło", "deviceName": "Pixel"}"""
-                .formatted(sfx, sfx));
+                {"householdName": "Dom %s", "userName": "Owner-%s", "password": "hasło", "deviceName": "Pixel",
+                 "email": "owner-%s@example.org"}"""
+                .formatted(sfx, sfx, sfx));
         assertThat(created).hasStatus(201);
         ownerToken = JsonPath.read(TestAuth.body(created), "$.token");
         householdId = JsonPath.read(TestAuth.body(created), "$.householdId");
@@ -88,8 +89,96 @@ class HouseholdAccountsTest {
 
         // a taken user name, also of another household
         assertThat(error(post(null, "/v1/auth/households", """
-                {"householdName": "Inny", "userName": "owner-%s", "password": "x", "deviceName": "Pixel"}"""
-                .formatted(sfx)))).isEqualTo("user_exists");
+                {"householdName": "Inny", "userName": "owner-%s", "password": "x", "deviceName": "Pixel",
+                 "email": "inny-%s@example.org"}"""
+                .formatted(sfx, sfx)))).isEqualTo("user_exists");
+    }
+
+    @Test
+    void anOwnerNeedsAnEmailAddress() {
+        assertThat(JsonPath.<String>read(TestAuth.body(get(ownerToken, "/v1/me")), "$.email"))
+                .isEqualTo("owner-" + sfx + "@example.org");
+        // required for a new household, checked for its shape, unique (case ignored)
+        assertThat(error(post(null, "/v1/auth/households", """
+                {"householdName": "Bez", "userName": "NoMail-%s", "password": "x", "deviceName": "Pixel"}"""
+                .formatted(sfx)))).isEqualTo("invalid_request");
+        assertThat(error(post(null, "/v1/auth/households", """
+                {"householdName": "Zły", "userName": "BadMail-%s", "password": "x", "deviceName": "Pixel",
+                 "email": "nie-mail"}""".formatted(sfx)))).isEqualTo("invalid_request");
+        assertThat(error(post(null, "/v1/auth/households", """
+                {"householdName": "Ten sam", "userName": "SameMail-%s", "password": "x", "deviceName": "Pixel",
+                 "email": "OWNER-%s@example.org"}""".formatted(sfx, sfx)))).isEqualTo("email_exists");
+
+        // an owner cannot remove it, a member can
+        assertThat(error(patch(ownerToken, "/v1/me", "{\"email\": \"\"}"))).isEqualTo("email_required");
+        var changed = patch(ownerToken, "/v1/me", "{\"email\": \" new-owner-" + sfx + "@example.org \"}");
+        assertThat(changed).hasStatusOk();
+        assertThat(JsonPath.<String>read(TestAuth.body(changed), "$.email")).isEqualTo("new-owner-" + sfx + "@example.org");
+        String memberToken = member("Member-" + sfx);
+        assertThat(JsonPath.<Object>read(TestAuth.body(get(memberToken, "/v1/me")), "$.email")).isNull();
+        assertThat(error(patch(memberToken, "/v1/me", "{\"email\": \"NEW-owner-" + sfx + "@example.org\"}")))
+                .isEqualTo("email_exists");
+        assertThat(patch(memberToken, "/v1/me", "{\"email\": \"member-" + sfx + "@example.org\"}")).hasStatusOk();
+        assertThat(patch(memberToken, "/v1/me", "{\"email\": null}")).hasStatusOk();
+        assertThat(JsonPath.<List<Boolean>>read(TestAuth.body(get(ownerToken, "/v1/household/members")),
+                "$[*].hasEmail")).containsExactly(true, false);
+        // the old address is free again
+        assertThat(post(null, "/v1/auth/households", """
+                {"householdName": "Wolny", "userName": "Free-%s", "password": "x", "deviceName": "Pixel",
+                 "email": "owner-%s@example.org"}""".formatted(sfx, sfx))).hasStatus(201);
+    }
+
+    @Test
+    void anOwnerWithoutAnEmailAddressSetsOneBeforeOwnerActions() {
+        jdbc.sql("UPDATE app_user SET email = NULL WHERE name = :name").param("name", "Owner-" + sfx).update();
+        assertThat(error(post(ownerToken, "/v1/household/invitations", ""))).isEqualTo("email_required");
+        assertThat(error(patch(ownerToken, "/v1/household", "{\"name\": \"X\"}"))).isEqualTo("email_required");
+        // recipes and the household view keep working
+        assertThat(get(ownerToken, "/v1/household/members")).hasStatusOk();
+        assertThat(get(ownerToken, "/v1/recipes")).hasStatusOk();
+        assertThat(patch(ownerToken, "/v1/me", "{\"email\": \"owner-" + sfx + "@example.org\"}")).hasStatusOk();
+        assertThat(post(ownerToken, "/v1/household/invitations", "")).hasStatus(201);
+    }
+
+    @Test
+    void aLoginCodeLogsAnotherDeviceIntoAnExistingAccount() {
+        String memberToken = member("Member-" + sfx);
+        String memberId = JsonPath.read(TestAuth.body(get(ownerToken, "/v1/household/members")), "$[1].userId");
+
+        assertThat(error(post(memberToken, "/v1/household/members/" + memberId + "/login-code", "")))
+                .isEqualTo("owner_required");
+        var first = post(ownerToken, "/v1/household/members/" + memberId + "/login-code", "");
+        assertThat(first).hasStatus(201);
+        String firstCode = JsonPath.read(TestAuth.body(first), "$.code");
+        assertThat(firstCode).matches("[A-Z2-9]{4}-[A-Z2-9]{4}");
+        assertThat(JsonPath.<String>read(TestAuth.body(first), "$.userName")).isEqualTo("Member-" + sfx);
+        // a new code replaces the earlier one
+        String code = JsonPath.read(TestAuth.body(post(ownerToken, "/v1/household/members/" + memberId + "/login-code",
+                "")), "$.code");
+        assertThat(error(loginCode(firstCode, "Tablet"))).isEqualTo("invalid_login_code");
+
+        var session = loginCode(code.toLowerCase().replace("-", ""), "Tablet");
+        assertThat(session).hasStatus(201);
+        assertThat(JsonPath.<String>read(TestAuth.body(session), "$.householdId")).isEqualTo(householdId);
+        String tablet = JsonPath.read(TestAuth.body(session), "$.token");
+        String me = TestAuth.body(get(tablet, "/v1/me"));
+        assertThat(JsonPath.<String>read(me, "$.userName")).isEqualTo("Member-" + sfx);
+        assertThat(JsonPath.<String>read(me, "$.deviceName")).isEqualTo("Tablet");
+        assertThat(get(memberToken, "/v1/me")).hasStatusOk();
+        // single use
+        assertThat(error(loginCode(code, "Laptop"))).isEqualTo("invalid_login_code");
+
+        // not for a user of another household or an unknown one
+        String other = TestAuth.enroll(mvc, "Other-" + sfx, "phone");
+        String otherId = JsonPath.read(TestAuth.body(get(other, "/v1/me")), "$.userId");
+        assertThat(post(ownerToken, "/v1/household/members/" + otherId + "/login-code", "")).hasStatus(404);
+        assertThat(post(ownerToken, "/v1/household/members/" + UUID.randomUUID() + "/login-code", "")).hasStatus(404);
+
+        // a code of a removed user no longer works
+        String late = JsonPath.read(TestAuth.body(post(ownerToken, "/v1/household/members/" + memberId + "/login-code",
+                "")), "$.code");
+        assertThat(delete(ownerToken, "/v1/household/members/" + memberId)).hasStatus(204);
+        assertThat(error(loginCode(late, "Laptop"))).isEqualTo("invalid_login_code");
     }
 
     @Test
@@ -148,6 +237,10 @@ class HouseholdAccountsTest {
                 .isEqualTo("owner_required");
         assertThat(error(delete(ownerToken, "/v1/me"))).isEqualTo("last_owner");
 
+        // only a user with an e-mail address becomes an owner
+        assertThat(error(patch(ownerToken, "/v1/household/members/" + memberId, "{\"role\": \"owner\"}")))
+                .isEqualTo("member_email_required");
+        assertThat(patch(memberToken, "/v1/me", "{\"email\": \"member-" + sfx + "@example.org\"}")).hasStatusOk();
         assertThat(patch(ownerToken, "/v1/household/members/" + memberId, "{\"role\": \"owner\"}")).hasStatusOk();
         assertThat(patch(ownerToken, "/v1/household/members/" + ownerId, "{\"role\": \"member\"}")).hasStatusOk();
         // the former owner is a member now; the new owner removes it
@@ -178,7 +271,8 @@ class HouseholdAccountsTest {
     @Test
     void membersDevicesAndInvitationsOfAnotherHouseholdAreNotFound() {
         String other = TestAuth.enroll(mvc, "Other-" + sfx, "phone");
-        jdbc.sql("UPDATE app_user SET role = 'owner' WHERE name = :name").param("name", "Other-" + sfx).update();
+        jdbc.sql("UPDATE app_user SET role = 'owner', email = :email WHERE name = :name")
+                .param("email", "other-" + sfx + "@example.org").param("name", "Other-" + sfx).update();
         String members = TestAuth.body(get(ownerToken, "/v1/household/members"));
         String ownerId = JsonPath.read(members, "$[0].userId");
         String ownerDevice = JsonPath.read(members, "$[0].devices[0].deviceId");
@@ -221,8 +315,9 @@ class HouseholdAccountsTest {
         assertThat(error(join(invitation, "Late-" + sfx))).isEqualTo("invalid_invitation_code");
         // the names are free again
         assertThat(post(null, "/v1/auth/households", """
-                {"householdName": "Znowu", "userName": "Owner-%s", "password": "x", "deviceName": "Pixel"}"""
-                .formatted(sfx))).hasStatus(201);
+                {"householdName": "Znowu", "userName": "Owner-%s", "password": "x", "deviceName": "Pixel",
+                 "email": "owner-%s@example.org"}"""
+                .formatted(sfx, sfx))).hasStatus(201);
     }
 
     @Test
@@ -273,14 +368,14 @@ class HouseholdAccountsTest {
         var full = new HouseholdService(jdbc, accounts, tokens, rateLimiter,
                 new HouseholdProperties(households, 40, 10, Duration.ofHours(48), BigDecimal.ONE),
                 new RegistrationProperties(null, 10), budget);
-        assertThatThrownBy(() -> full.createHousehold("Pełny", "Full-" + sfx, "x", "Pixel"))
+        assertThatThrownBy(() -> full.createHousehold("Pełny", "Full-" + sfx, "x", "Pixel", "full-" + sfx + "@example.org"))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.error()).isEqualTo("household_limit_reached"));
 
         var slow = new HouseholdService(jdbc, accounts, tokens, rateLimiter,
                 new HouseholdProperties(households + 10, 40, 1, Duration.ofHours(48), BigDecimal.ONE),
                 new RegistrationProperties(null, 10), budget);
-        slow.createHousehold("Jeden", "One-" + sfx, "x", "Pixel");
-        assertThatThrownBy(() -> slow.createHousehold("Dwa", "Two-" + sfx, "x", "Pixel"))
+        slow.createHousehold("Jeden", "One-" + sfx, "x", "Pixel", "one-" + sfx + "@example.org");
+        assertThatThrownBy(() -> slow.createHousehold("Dwa", "Two-" + sfx, "x", "Pixel", "two-" + sfx + "@example.org"))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.error()).isEqualTo("too_many_requests"));
     }
 
@@ -320,6 +415,11 @@ class HouseholdAccountsTest {
         return post(null, "/v1/auth/join", """
                 {"invitationCode": "%s", "userName": "%s", "password": "hasło", "deviceName": "Pixel"}"""
                 .formatted(code, userName));
+    }
+
+    private MvcTestResult loginCode(String code, String deviceName) {
+        return post(null, "/v1/auth/login-code", """
+                {"loginCode": "%s", "deviceName": "%s"}""".formatted(code, deviceName));
     }
 
     private Object deletedAt() {

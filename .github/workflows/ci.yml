@@ -81,6 +81,7 @@ jobs:
           ssh server "cd $APP_DIR && chmod +x backup.sh restore.sh wait-healthy.sh \
             && install -d -o 10001 -g 10001 /srv/recipedealer/backups \
             && install -m 644 recipedealer-backup.cron /etc/cron.d/recipedealer-backup \
-            && docker compose up -d --build --remove-orphans && docker image prune -f"
+            && docker compose up -d --build --remove-orphans && docker image prune -f \
+            && docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile"
       - name: Wait until the app answers
         run: ssh server "$APP_DIR/wait-healthy.sh"

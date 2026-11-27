@@ -1,6 +1,8 @@
-# SITE_ADDRESS (from .env) is the server's public IPv4 for now. Let's Encrypt issues IP certificates only with
-# the short-lived (160 h) profile, which Caddy renews automatically. To move to a domain later, set SITE_ADDRESS
-# to the domain name; the profile can stay (short-lived certificates work for domains too) or be removed.
+# SITE_ADDRESS (from .env) is the server's public IPv4, which app releases up to 1.1.0 call. Let's Encrypt issues IP
+# certificates only with the short-lived (160 h) profile, which Caddy renews automatically; the profile applies to
+# the domain too (fine, also renewed automatically). api.recipedealer.com (Cloudflare DNS, A + AAAA, proxy off so
+# Let's Encrypt reaches Caddy directly) is the address of later releases. Once no device runs an IP release, drop
+# SITE_ADDRESS, default_sni and the shortlived profile.
 {
 	# Clients connecting to an IP address send no SNI; use the site address to pick the certificate.
 	default_sni {$SITE_ADDRESS}
@@ -9,7 +11,7 @@
 	}
 }
 
-{$SITE_ADDRESS} {
+{$SITE_ADDRESS}, api.recipedealer.com {
 	# Keep in sync with spring.servlet.multipart (25 MiB per file, 50 MiB per request; Spring "MB" means MiB); larger bodies get 413.
 	request_body {
 		max_size 50MiB

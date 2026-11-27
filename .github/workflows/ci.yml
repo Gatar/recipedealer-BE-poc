@@ -19,6 +19,8 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
+      - name: Install cwebp (WebP photos)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends webp
       - name: Build and test (Testcontainers with PostgreSQL)
         run: ./mvnw -B verify
       - uses: actions/upload-artifact@v7

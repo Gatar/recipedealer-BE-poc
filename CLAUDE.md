@@ -17,14 +17,14 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 ## Decisions (agreed 2026-10-21)
 - Versions: Spring Boot 4.1.1 (manages Flyway, Testcontainers 2.x, JUnit 6, Jackson 3), PostgreSQL 18.6,
   networknt json-schema-validator 3.0.6 (3.0.7+ needs Jackson 3.2, Boot manages 3.1), bucket4j_jdk17-core 8.21.0, java-uuid-generator 5.2.0,
-  eclipse-temurin 25 JDK image, Caddy 2.11.7.
+  eclipse-temurin 25 JDK image, Caddy 2.11.7, TwelveMonkeys imageio-webp 3.15.3, Ubuntu `webp` 1.3.2 (2026-11-27).
 - Phone contract details (from the Android code): attachment parts are named like `attachments[].name`;
   errors `{"error": "...", "details": ["..."]}`; health body contains `"ok"`; provenance is a flat map
   (`title`, `ingredients`, `steps`, ...) with stages `jsonLd | microdata | pluginHits | heuristic | ocr | page | manual | user`.
   `needsReview` when ingredients/steps come only from `heuristic`, `ocr` or `page`.
 - Identity keys come from `raw.web.canonicalUrl` (fallback `source.url`) and `raw.web.jsonLdRecipeId`.
 - Admin rate limit: 5 failed admin authentications per hour, global (not per IP), then 429 for all admin calls.
-- `DELETE /v1/recipes/{id}` (soft delete, tombstone in the sync feed) is in scope.
+- `DELETE /v1/recipes/{id}` (tombstone in the sync feed; purged for good since 2026-11-27, see "Permanent deletion").
 - Nightly `pg_dump` at 01:30 server time via host cron; keep the last 7 dumps.
 - Upload limits: 25 MiB per file, 50 MiB per request (Spring "MB" = MiB, Caddy `50MiB`).
 
@@ -44,8 +44,10 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   V23): logging in (or enrolling) again with the name of a working device replaces that device's token and keeps its
   id; a new name adds a device. A revoked device frees its name (user, 2026-11-26) and stays revoked; other users may
   use the same names.
-- `DELETE /v1/admin/users/{userId}` is a soft delete (`deleted_at`), also for users with history: devices revoked,
-  locks released, name and limit slot freed; history keeps pointing at the old user row.
+- `DELETE /v1/admin/users/{userId}` (and `DELETE /v1/me`) delete for good (user, 2026-11-27; `deleted_at`, V24): name,
+  e-mail, password, device names and tokens wiped, devices revoked, locks and login codes dropped, name and limit slot
+  freed. The row and its device rows stay only because immutable captures and the history point to them (no author
+  name shown); the user's recipes stay in the household.
 - Users without a password (admin-enrolled) set one with `PUT /v1/me/password` and their token; changing it needs
   the current password.
 - Failed attempts: 5 per user name / 15 min, 50 in total / hour (in memory, reset on restart).
@@ -97,9 +99,38 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   optional ("Urządzenie"). A code may be made for one working device of the user (`login_code.device_id`, V23): it
   then logs in as that device (its name). Like a password login, the name of a working device replaces that device's
   token: no duplicates (user, 2026-11-26, replacing the earlier " (2)" numbering).
-- Deleting is soft (account: `DELETE /v1/me`; household: `DELETE /v1/household`, never the default one): users get
-  `deleted_at` (names free), devices revoked, household `deleted_at`, data kept. A real purge of a household's data
-  is still to do (needed for the Play Store's account deletion).
+- Deleting is permanent (account: `DELETE /v1/me`; household: `DELETE /v1/household`, never the default one), see
+  "Permanent deletion".
+
+## Permanent deletion (agreed 2026-11-27)
+- User: deleted means gone for good; nothing can be restored (a manual dump before the switch is in
+  `/srv/recipedealer/manual-backups/pre-hard-delete-2026-11-27/`).
+- Accounts: wiped at once (`DeviceTokenService.deleteUser`, above).
+- Recipes and households: `DELETE` marks them (`deleted_at`; a recipe's keys are freed at once), `PurgeService`
+  purges them in the background (`PurgePoller`, every 5 min with the job worker) once no job of their captures is
+  `running` (queued ones are dropped; the jobs are locked meanwhile, so the worker cannot claim them).
+  - A recipe loses revisions, keys, tags, locks, taggings, translations and the captures only it used (runs,
+    decisions, attachments, photos, files). The row stays as the sync tombstone with `purged_at` (head and content
+    columns NULL; the sync feed LEFT JOINs the head). A capture another recipe still uses stays.
+  - A household loses everything incl. users, devices and the household row (no tombstones: no device is left).
+- Revisions can be deleted like captures (V24: `recipe_revision_delete_guard`, same `rd.delete_capture` switch;
+  `CaptureDeletionService.allowDeletes`). `BlobJanitor` deletes blob rows nothing refers to, files after the commit.
+
+## Photo storage (agreed 2026-11-27)
+- Every photo the server stores (uploads, web copies, PDF photos, dish cut-outs) is WebP of at most 1280 px
+  (`Images.photo`, quality 80, no metadata), encoded by `cwebp` (Ubuntu package `webp`, pinned in the Dockerfile,
+  installed in CI; Java has no WebP encoder) from PPM on stdin. Reading WebP: TwelveMonkeys `imageio-webp`. A web
+  photo the server cannot decode (e.g. AVIF) is stored as it came. Media types: `media_type` on `user_photo`,
+  `dish_photo`, `pdf_image`, `web_image`.
+- Older JPEGs: `PhotoService.convertToWebp` (with the purge poller) converts dish, PDF and web photos and moves the
+  recipes' thumbnails (bumping `updated_at`); uploads stay JPEG (immutable revisions name them by hash).
+- Only current photos (`PhotoService.sweep`, nightly 04:30 and after a purge): an upload no live head shows and no
+  thumbnail / not-done capture needs goes at once if a revision or capture named it (replaced), after 7 days if nothing
+  ever did; web copies no live head shows; dish and PDF photos of done captures that are no thumbnail (row kept, blob
+  NULL, so nothing is searched or cut out again). Restoring a revision drops its deleted `blob:` photo
+  (`withoutDeletedPhotos`) instead of 400.
+- Phone attachments are kept while their recipe exists (user: needed for re-reading; PDFs are most of the space, "if
+  they become a problem we'll think"). The app already sends photos as upright JPEG ≤ 1600 px.
 
 ## Admin dashboard (agreed 2026-11-25, stage 2.5)
 - `https://<server>/admin/`: static page (`static/admin/`: `index.html`, `admin.css`, `admin.js`, vanilla JS, Polish UI)
@@ -133,12 +164,12 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
   photo of the recipe. Never fetch from private addresses (`allow-private-addresses` is for tests only).
 - PDF photos (2026-10-28): `PdfImageService` (PDFBox, poll every minute with the job worker) searches every PDF
   attachment once: the largest image (shorter edge ≥ 200 px, stencil masks ignored, images in forms included) of the
-  first page that has one, pages in order; no image → no photo, pages are never rendered. Stored as JPEG ≤ 1600 px
-  in `pdf_image` (one row per attachment, also for "none" / damaged) and used like a photo attachment for the
+  first page that has one, pages in order; no image → no photo, pages are never rendered. Stored as WebP ≤ 1280 px
+  (JPEG ≤ 1600 px before 2026-11-27) in `pdf_image` (one row per attachment, also for "none" / damaged) and used like a photo attachment for the
   thumbnail.
 - Dish photos from photos / screenshots (2026-10-28): the LLM step also returns `dishPhoto` (image number from the
   labels "Image N, name:", box in thousandths of that image, not pixels: the API may downscale internally);
-  `DishPhotoCropper` cuts it out of the original attachment (tiles mapped back), JPEG ≤ 1600 px, shorter edge ≥
+  `DishPhotoCropper` cuts it out of the original attachment (tiles mapped back), WebP ≤ 1280 px, shorter edge ≥
   200 px, into `dish_photo` (one row per LLM run that saw images; no blob = no dish). The first box is rough
   (tested on cookbook photos: often too tall or cut), so the same model takes a second look
   (`RecipePrompt.DISH_PHOTO_PROMPT`, the box + 50 % margin on each side) and gives the exact edges; its usage is added
@@ -188,17 +219,17 @@ Shared rules (language, contract, deployment order, VPS, permission pitfalls): `
 - Usage per tagging on the row; `extraction-stats` lists it as a run with step `tagging`.
 
 ## Recipe photos from the phone (agreed 2026-10-24 option a, built 2026-11-03)
-- `POST /v1/blobs` (part `image`, `PhotoService`): whatever is sent is re-encoded as JPEG ≤ 1600 px on the longer edge
-  (user, 2026-11-03: camera photos of several MB must not fill the storage); huge images are decoded subsampled.
+- `POST /v1/blobs` (part `image`, `PhotoService`): whatever is sent is re-encoded as WebP ≤ 1280 px on the longer edge
+  (user, 2026-11-03: camera photos of several MB must not fill the storage; WebP since 2026-11-27); huge images are decoded subsampled.
   Row in `user_photo`. EXIF orientation is not applied (the app sends the photo upright).
 - The recipe references it in its content: `images[0] = "blob:<sha256>"`, saved as a normal USER revision (history,
   edit lock). Not a `data:` URI (rejected: bloats every sync). A revision naming an unknown `blob:` is 400
   `unknown_photo`. Thumbnail order: user photo, then `web_image`, then capture photo (`RecipeRepository`).
 - A capture may carry the ref in `recipe.images[0]` too (the app's manual entry / corrected preview); the new recipe
   keeps it like any page photo. Not validated at upload: an unknown ref simply gives no thumbnail.
-- Unused photos (no revision, candidate, capture or recipe thumbnail names them) are deleted after 7 days by
-  `PhotoCleanupPoller` (daily 04:30, `recipedealer.photos.unused-grace`), files after the commit; older revisions
-  keep theirs so history can be restored.
+- Photos that are not current are deleted by `PhotoCleanupPoller` (daily 04:30; grace for never-used uploads
+  `recipedealer.photos.unused-grace`, 7 days); since 2026-11-27 older revisions no longer keep theirs (see "Photo
+  storage").
 
 ## Translation of new recipes (agreed 2026-11-03)
 - The app sends header `Translate-To: <device language>` on the upload when its setting is on; stored in

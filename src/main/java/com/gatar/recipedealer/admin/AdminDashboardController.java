@@ -356,9 +356,12 @@ public class AdminDashboardController {
         String mediaType = jdbc.sql("""
                         SELECT coalesce((SELECT a.media_type FROM capture_attachment a WHERE a.blob_sha256 = b.sha256 LIMIT 1),
                                         (SELECT w.media_type FROM web_image w WHERE w.blob_sha256 = b.sha256 LIMIT 1),
+                                        (SELECT p.media_type FROM pdf_image p WHERE p.blob_sha256 = b.sha256 LIMIT 1),
+                                        (SELECT d.media_type FROM dish_photo d WHERE d.blob_sha256 = b.sha256 LIMIT 1),
+                                        (SELECT u.media_type FROM user_photo u WHERE u.blob_sha256 = b.sha256 LIMIT 1),
                                         CASE WHEN EXISTS (SELECT 1 FROM capture c WHERE c.body_sha256 = b.sha256)
                                              THEN 'application/json' END,
-                                        'image/jpeg')
+                                        'application/octet-stream')
                         FROM blob b WHERE b.sha256 = :sha256""")
                 .param("sha256", sha256).query(String.class).optional()
                 .orElseThrow(() -> new NotFoundException("blob " + sha256 + " not found"));

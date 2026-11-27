@@ -8,7 +8,6 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.time.Duration;
 import java.util.UUID;
 
 import javax.imageio.ImageIO;
@@ -26,6 +25,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import com.gatar.recipedealer.IntegrationTest;
 import com.gatar.recipedealer.TestAuth;
 import com.gatar.recipedealer.TestCaptures;
+import com.gatar.recipedealer.common.Images;
 import com.gatar.recipedealer.processing.JobWorker;
 import com.jayway.jsonpath.JsonPath;
 
@@ -97,7 +97,7 @@ class PhotoTest {
     }
 
     @Test
-    void aLargePhotoIsStoredAsASmallJpegAndBecomesTheThumbnail() throws IOException {
+    void aLargePhotoIsStoredAsASmallWebpAndBecomesTheThumbnail() throws IOException {
         byte[] original = png(4000, 3000);
         MvcTestResult result = upload(original);
 
@@ -105,13 +105,15 @@ class PhotoTest {
         String body = TestAuth.body(result);
         String blob = JsonPath.read(body, "$.blob");
         assertThat(JsonPath.<String>read(body, "$.ref")).isEqualTo("blob:" + blob);
-        assertThat(JsonPath.<Integer>read(body, "$.width")).isEqualTo(1600);
-        assertThat(JsonPath.<Integer>read(body, "$.height")).isEqualTo(1200);
+        assertThat(JsonPath.<Integer>read(body, "$.width")).isEqualTo(1280);
+        assertThat(JsonPath.<Integer>read(body, "$.height")).isEqualTo(960);
 
         var stored = mvc.get().uri("/v1/blobs/{sha}", blob).header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token)).exchange();
-        assertThat(stored).hasStatusOk().hasContentType(MediaType.IMAGE_JPEG);
-        BufferedImage image = ImageIO.read(new ByteArrayInputStream(stored.getResponse().getContentAsByteArray()));
-        assertThat(image.getWidth()).isEqualTo(1600);
+        assertThat(stored).hasStatusOk().hasContentType("image/webp");
+        byte[] bytes = stored.getResponse().getContentAsByteArray();
+        assertThat(Images.isWebp(bytes)).isTrue();
+        BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
+        assertThat(image.getWidth()).isEqualTo(1280);
 
         assertThat(saveWithImage("blob:" + blob)).hasStatus(201);
 
@@ -148,7 +150,7 @@ class PhotoTest {
         String fresh = uploaded();
         age(unused, "8 days");
 
-        assertThat(photos.deleteUnused(Duration.ofDays(7))).contains(unused).doesNotContain(fresh);
+        assertThat(photos.sweep()).contains(unused).doesNotContain(fresh);
 
         assertThat(blob(unused)).hasStatus(404);
         assertThat(blob(fresh)).hasStatusOk();
@@ -157,17 +159,22 @@ class PhotoTest {
     }
 
     @Test
-    void aPhotoOfAnOlderRevisionIsKept() throws IOException {
+    void aReplacedPhotoIsDeletedAtOnceAndARestoredRevisionComesBackWithoutIt() throws IOException {
         String old = uploaded();
         assertThat(saveWithImage("blob:" + old)).hasStatus(201);
-        // a newer photo replaces it as the head's, the older revision still names it
         String current = uploaded();
         assertThat(saveWithImage("blob:" + current)).hasStatus(201);
-        age(old, "30 days");
-        age(current, "30 days");
 
-        assertThat(photos.deleteUnused(Duration.ofDays(7))).doesNotContain(old, current);
-        assertThat(blob(old)).hasStatusOk();
+        // only the head's photo is current; the older revision naming the old one does not keep it
+        assertThat(photos.sweep()).contains(old).doesNotContain(current);
+        assertThat(blob(old)).hasStatus(404);
+        assertThat(blob(current)).hasStatusOk();
+
+        // restoring the older content: its deleted photo is left out instead of 400 unknown_photo
+        assertThat(saveWithImage("blob:" + old)).hasStatus(201);
+        var recipe = TestAuth.body(mvc.get().uri("/v1/recipes/{id}", recipeId)
+                .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token)).exchange());
+        assertThat(JsonPath.<java.util.List<String>>read(recipe, "$.recipe.images")).isEmpty();
     }
 
     @Test

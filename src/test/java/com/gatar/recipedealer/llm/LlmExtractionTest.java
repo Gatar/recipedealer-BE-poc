@@ -234,7 +234,7 @@ class LlmExtractionTest {
         assertThat(thumbnail(captureId)).isEqualTo(photo.get("blob_sha256"));
         var blob = mvc.get().uri("/v1/blobs/{sha256}", photo.get("blob_sha256"))
                 .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token)).exchange();
-        assertThat(blob).hasStatusOk().hasContentType("image/jpeg");
+        assertThat(blob).hasStatusOk().hasContentType("image/webp");
         BufferedImage cutOut = ImageIO.read(new ByteArrayInputStream(blob.getResponse().getContentAsByteArray()));
         assertThat(cutOut.getWidth()).isEqualTo(400);
         assertThat(cutOut.getHeight()).isEqualTo(1000);

@@ -13,6 +13,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client-18=18.6-1.pgdg24.04+2 \
     && rm -rf /var/lib/apt/lists/*
 
+# cwebp: stored photos are WebP (Images.webp); Java has no WebP encoder. Version of the noble release pocket.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends webp=1.3.2-0.4build3 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system --gid 10001 recipedealer \
     && useradd --system --uid 10001 --gid recipedealer --home-dir /app --shell /usr/sbin/nologin recipedealer \
     && mkdir -p /app /data/blobs /data/backups \

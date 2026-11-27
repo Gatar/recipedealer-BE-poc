@@ -120,10 +120,12 @@ public class ProcessingRepository {
                     .update();
         }
         jdbc.sql("""
-                        INSERT INTO dish_photo (run_id, capture_id, attachment_name, blob_sha256, x, y, width, height, rotation)
-                        VALUES (:runId, :captureId, :name, :sha256, :x, :y, :width, :height, :rotation)""")
+                        INSERT INTO dish_photo (run_id, capture_id, attachment_name, blob_sha256, media_type, x, y, width, height,
+                                                rotation)
+                        VALUES (:runId, :captureId, :name, :sha256, :mediaType, :x, :y, :width, :height, :rotation)""")
                 .param("runId", runId)
                 .param("captureId", captureId)
+                .param("mediaType", photo == null ? null : com.gatar.recipedealer.common.Images.WEBP)
                 .param("name", photo == null ? null : photo.attachmentName())
                 .param("sha256", photo == null ? null : photo.blobSha256())
                 .param("x", photo == null ? null : photo.x())

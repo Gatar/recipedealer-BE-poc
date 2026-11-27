@@ -1,5 +1,8 @@
 package com.gatar.recipedealer.webimage;
 
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -8,6 +11,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.gatar.recipedealer.blob.BlobRef;
+import com.gatar.recipedealer.blob.BlobStore;
+import com.gatar.recipedealer.common.Images;
 import com.gatar.recipedealer.recipe.RecipeRepository;
 
 /**
@@ -25,10 +31,12 @@ public class WebImageService {
     private final RecipeRepository recipes;
     private final WebImageProperties properties;
     private final TransactionTemplate tx;
+    private final BlobStore blobs;
 
     public WebImageService(JdbcClient jdbc, WebImageDownloader downloader, RecipeRepository recipes,
-                           WebImageProperties properties, TransactionTemplate tx) {
+                           WebImageProperties properties, TransactionTemplate tx, BlobStore blobs) {
         this.jdbc = jdbc;
+        this.blobs = blobs;
         this.downloader = downloader;
         this.recipes = recipes;
         this.properties = properties;
@@ -58,11 +66,15 @@ public class WebImageService {
         return urls.size();
     }
 
-    /** Downloads one photo and sets it on the recipes that show it, or records the failure. */
+    /**
+     * Downloads one photo, stores it as WebP ({@link Images#photo}; as it came when the server cannot decode it, e.g.
+     * AVIF) and sets it on the recipes that show it, or records the failure.
+     */
     public void fetch(String url) {
-        WebImageDownloader.Image image;
+        Stored image;
         try {
-            image = downloader.download(url);
+            WebImageDownloader.Image download = downloader.download(url);
+            image = store(download);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return;
@@ -90,6 +102,23 @@ public class WebImageService {
             return recipes.setWebImageThumbnail(url, image.blob().sha256());
         });
         log.info("Downloaded photo {} ({}, {} bytes) for {} recipe(s)", url, image.mediaType(), image.blob().sizeBytes(), updated);
+    }
+
+    private record Stored(String mediaType, BlobRef blob) {
+    }
+
+    private Stored store(WebImageDownloader.Image download) throws IOException {
+        BufferedImage decoded;
+        try {
+            decoded = Images.read(download.bytes());
+        } catch (IOException e) {
+            decoded = null;
+        }
+        if (decoded == null) {
+            log.info("Photo of type {} cannot be decoded, stored as it came", download.mediaType());
+            return new Stored(download.mediaType(), blobs.put(new ByteArrayInputStream(download.bytes())));
+        }
+        return new Stored(Images.WEBP, blobs.put(new ByteArrayInputStream(Images.photo(decoded))));
     }
 
     /** Next attempt after base × 4^(attempts-1): 1 h, 4 h, 16 h, …; none after a permanent failure or the last attempt. */

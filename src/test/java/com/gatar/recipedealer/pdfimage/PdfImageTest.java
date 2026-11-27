@@ -68,7 +68,7 @@ class PdfImageTest {
         assertThat(updatedAt(recipeId)).isGreaterThan(updatedAt);
         assertThat(mvc.get().uri("/v1/blobs/{sha256}", row.get("blob_sha256"))
                 .header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token)).exchange())
-                .hasStatusOk().hasContentType("image/jpeg");
+                .hasStatusOk().hasContentType("image/webp");
         assertThat(images.drain()).isZero();
     }
 

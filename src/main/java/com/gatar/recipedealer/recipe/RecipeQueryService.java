@@ -113,7 +113,7 @@ public class RecipeQueryService {
                 .single();
     }
 
-    /** All revisions, newest first; non-head revisions after the head are proposals. */
+    /** All revisions, newest first; non-head revisions after the head are proposals; none for a purged recipe. */
     public List<RevisionView> revisions(UUID recipeId) {
         if (jdbc.sql("SELECT count(*) FROM recipe WHERE id = :id").param("id", recipeId).query(Long.class).single() == 0) {
             throw new NotFoundException("recipe " + recipeId + " not found");
@@ -164,7 +164,7 @@ public class RecipeQueryService {
         List<SyncItem> items = jdbc.sql("""
                         SELECT r.id, r.updated_at, r.deleted_at IS NOT NULL AS deleted, r.merged_into, r.head_revision_id,
                                h.needs_review, h.content, r.source_summary, r.thumbnail_blob, %s
-                        FROM recipe r JOIN recipe_revision h ON h.id = r.head_revision_id
+                        FROM recipe r LEFT JOIN recipe_revision h ON h.id = r.head_revision_id
                         WHERE r.household_id = :household AND (r.updated_at, r.id) > (:afterTime, :afterId) AND r.updated_at < :horizon
                         ORDER BY r.updated_at, r.id
                         LIMIT :limit""".formatted(TAGS))

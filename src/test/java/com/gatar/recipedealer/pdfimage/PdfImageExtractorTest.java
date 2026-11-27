@@ -45,7 +45,8 @@ class PdfImageExtractorTest {
         assertThat(photo.page()).isEqualTo(2);
         assertThat(photo.width()).isEqualTo(800);
         assertThat(photo.height()).isEqualTo(600);
-        BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(photo.jpeg()));
+        assertThat(com.gatar.recipedealer.common.Images.isWebp(photo.webp())).isTrue();
+        BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(photo.webp()));
         assertThat(decoded.getWidth()).isEqualTo(800);
         assertThat(new Color(decoded.getRGB(400, 300)).getRed()).isGreaterThan(200);
     }

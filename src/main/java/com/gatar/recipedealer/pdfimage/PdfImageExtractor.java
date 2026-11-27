@@ -24,7 +24,7 @@ import com.gatar.recipedealer.common.Images;
 /**
  * Finds the photo of a PDF: the largest image of the first page that has one, pages in order. Images whose shorter
  * edge is below {@link #MIN_EDGE} (logos, icons, rules) and stencil masks do not count; an image that cannot be decoded
- * is skipped. The photo is re-encoded as an RGB JPEG of at most {@code maxEdge} px.
+ * is skipped. The photo is re-encoded as WebP of at most {@code maxEdge} px ({@link Images#webp}).
  */
 public class PdfImageExtractor {
 
@@ -32,7 +32,8 @@ public class PdfImageExtractor {
     /** Larger images are skipped instead of decoded (a 50 MP RGB image already takes 200 MB of heap). */
     static final long MAX_PIXELS = 50_000_000L;
 
-    public record Photo(int page, byte[] jpeg, int width, int height) {
+    /** @param webp the photo as WebP ({@link Images#WEBP}) */
+    public record Photo(int page, byte[] webp, int width, int height) {
     }
 
     private final int maxEdge;
@@ -52,7 +53,7 @@ public class PdfImageExtractor {
                     BufferedImage decoded = decode(candidate);
                     if (decoded != null) {
                         BufferedImage photo = Images.fit(decoded, maxEdge);
-                        return Optional.of(new Photo(index + 1, Images.jpeg(photo), photo.getWidth(), photo.getHeight()));
+                        return Optional.of(new Photo(index + 1, Images.webp(photo),photo.getWidth(), photo.getHeight()));
                     }
                 }
             }

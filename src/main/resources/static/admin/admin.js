@@ -6,6 +6,8 @@
 const API = location.origin + '/v1/admin';
 const state = {households: [], loaded: {}};
 const DEFAULT_HOUSEHOLD = '00000000-0000-7000-8000-000000000001';
+// deleted accounts keep no name (V24)
+const DELETED_ACCOUNT = '(usunięte konto)';
 
 // --- helpers ---
 
@@ -135,7 +137,7 @@ function renderHouseholds() {
         }}, 'Zaproszenie');
         const remove = h.householdId === DEFAULT_HOUSEHOLD ? null : el('button', {class: 'danger', onclick: async () => {
             if (!confirm('Usunąć dom „' + h.name + '” razem z jego ' + h.users + ' użytkownikami? Ich urządzenia przestaną działać, '
-                + 'dane zostaną na serwerze.')) return;
+                + 'a wszystkie dane domu (przepisy, zrzuty, zdjęcia, konta) zostaną trwale usunięte. Tego nie da się cofnąć.')) return;
             await run(() => api('/households/' + h.householdId, {method: 'DELETE'}), 'Usunięto dom „' + h.name + '”.');
             await refresh('households');
         }}, 'Usuń');
@@ -203,7 +205,8 @@ async function loadUsers() {
                 await refresh('users');
             }}, 'Zapisz');
             const remove = el('button', {class: 'danger', onclick: async () => {
-                if (!confirm('Usunąć użytkownika „' + u.userName + '”? Jego urządzenia przestaną działać, historia zostaje.')) return;
+                if (!confirm('Usunąć użytkownika „' + u.userName + '”? Jego nazwa, e-mail, hasło i urządzenia zostaną trwale usunięte; '
+                    + 'przepisy zostają w domu bez autora. Tego nie da się cofnąć.')) return;
                 await run(() => api('/users/' + u.userId, {method: 'DELETE'}), 'Usunięto ' + u.userName + '.');
                 await refresh('users');
             }}, 'Usuń');
@@ -217,7 +220,7 @@ async function loadUsers() {
             }}, 'Zapisz nazwę');
             const password = el('button', {class: 'secondary', onclick: () => askPassword(u)}, 'Hasło…');
             return el('tr', {class: u.deletedAt ? 'deleted' : null},
-                el('td', {}, u.deletedAt ? u.userName : name), el('td', {}, u.householdName), el('td', {}, role),
+                el('td', {}, u.deletedAt ? (u.userName || DELETED_ACCOUNT) : name), el('td', {}, u.householdName), el('td', {}, role),
                 el('td', {class: 'nowrap'}, u.deletedAt ? (u.email || '–') : [email, ' ', saveEmail]),
                 el('td', {}, u.hasPassword ? 'tak' : 'nie'), el('td', {class: 'num'}, u.devices),
                 el('td', {class: 'nowrap'}, date(u.lastUsedAt)), el('td', {class: 'nowrap'}, date(u.createdAt)),
@@ -253,7 +256,7 @@ async function loadDevices() {
             await refresh('devices');
         }}, 'Zapisz nazwę');
         return el('tr', {class: d.revokedAt ? 'deleted' : null},
-            el('td', {}, d.revokedAt ? d.deviceName : [name, ' ', rename]), el('td', {}, d.userName),
+            el('td', {}, d.revokedAt ? (d.deviceName || '–') : [name, ' ', rename]), el('td', {}, d.userName || DELETED_ACCOUNT),
             el('td', {}, householdName(d.householdId)),
             el('td', {class: 'nowrap'}, date(d.createdAt)), el('td', {class: 'nowrap'}, date(d.lastUsedAt)),
             el('td', {class: 'actions'}, d.revokedAt ? 'odwołane ' + date(d.revokedAt) : revoke));
@@ -274,7 +277,7 @@ async function loadRecipes() {
         el('tr', {class: 'clickable' + (r.deleted ? ' deleted' : ''), onclick: () => showRecipe(r.recipeId)},
             el('td', {}, r.thumbnailBlob ? el('img', {class: 'thumb', src: API + '/blobs/' + r.thumbnailBlob, alt: '', loading: 'lazy'})
                 : el('div', {class: 'thumb'})),
-            el('td', {class: 'wrap'}, r.title || '(bez tytułu)', r.needsReview ? el('span', {class: 'badge warn'}, ' do przejrzenia') : null),
+            el('td', {class: 'wrap'}, r.title || (r.deleted ? '(usunięty)' : '(bez tytułu)'), r.needsReview ? el('span', {class: 'badge warn'}, ' do przejrzenia') : null),
             el('td', {}, r.householdName), el('td', {}, r.sourceSummary || '–'),
             el('td', {class: 'num'}, r.revisions), el('td', {class: 'nowrap'}, date(r.createdAt)),
             el('td', {class: 'nowrap'}, date(r.updatedAt)))), 'Brak przepisów.');
@@ -332,7 +335,7 @@ async function loadCaptures() {
             }})),
             el('td', {class: 'nowrap'}, date(c.receivedAt)),
             el('td', {}, c.householdName),
-            el('td', {}, c.userName, el('div', {class: 'muted'}, c.deviceName)),
+            el('td', {}, c.userName || DELETED_ACCOUNT, el('div', {class: 'muted'}, c.deviceName)),
             el('td', {}, c.sourceType.toLowerCase(), c.attachments ? el('div', {class: 'muted'}, c.attachments + ' zał.') : null),
             el('td', {class: 'wrap'}, c.title || '(bez tytułu)', c.sourceUrl ? el('div', {class: 'muted'}, c.sourceUrl) : null),
             el('td', {class: 'wrap'}, el('span', {class: 'badge' + (c.status === 'needs_attention' ? ' bad' : c.status === 'done' ? '' : ' warn')}, c.status),

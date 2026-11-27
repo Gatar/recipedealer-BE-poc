@@ -248,8 +248,10 @@ Every user belongs to one household. Anyone creates a household and becomes its 
 **members** with single-use codes and manage members and devices. At most 20 households (`MAX_HOUSEHOLDS`, the
 default household included) and at most 10 new ones per hour on the server; at most 10 users per household
 (`MAX_USERS`). A new household may keep at most 40 live recipes (`DEFAULT_RECIPE_LIMIT`); the admin changes the limit
-per household, the default household has none. Deleting is soft: users and the household are marked deleted, their
-devices stop working and their names are free again; the data stays on the server.
+per household, the default household has none. Deleting is permanent: a deleted account loses its name, e-mail,
+password and devices at once (its recipes stay in the household without an author name; the name and e-mail are free
+again); a deleted household is purged with all its data (recipes, captures, photos, tags, accounts) a few minutes
+later. Nothing can be restored.
 
 Errors of this section: **403** `owner_required` (the caller is a member, the action needs an owner), **409**
 `last_owner` (the household would be left without an owner while it has other members).
@@ -349,8 +351,9 @@ Sets the caller's e-mail address. Body `{"email": "ania@example.org"}`; `null` o
 
 ### DELETE /v1/me
 
-Deletes the caller's account (all its devices stop working; its history stays). The last user of a household takes
-the household along, except the default household.
+Deletes the caller's account for good, like `DELETE /v1/admin/users/{userId}` (personal data wiped, all its devices
+stop working; its recipes stay in the household without an author name). The last user of a household takes the
+household along (purged with all its data), except the default household.
 
 - **204**.
 - **409** `last_owner`: the caller is the only owner and the household has other members; make one an owner first.
@@ -361,7 +364,8 @@ Renames the household (owner). Body `{"name": "Dom"}` (1–100 characters). **20
 
 ### DELETE /v1/household
 
-Deletes the household with all its users (owner). Its invitations stop working.
+Deletes the household with all its users (owner). Its devices and invitations stop working at once; a few minutes
+later all its data (recipes, captures, photos, tags, accounts, the household itself) is purged for good.
 
 - **204**.
 - **403** `owner_required`.
@@ -638,8 +642,10 @@ Errors:
 
 ### DELETE /v1/recipes/{recipeId}
 
-Soft delete. The recipe becomes a tombstone in the sync feed, and its URL and JSON-LD keys are freed for new
-recipes. Needs `Lock-Id`; `If-Match` is optional and checked when present.
+Permanent delete. The recipe becomes a tombstone in the sync feed and its URL and JSON-LD keys are freed for new
+recipes at once; a few minutes later everything else goes for good (revisions, tags, the captures it came from with
+their files and photos). Only the tombstone stays, so other devices still learn about the delete; its revisions list
+is then empty. Needs `Lock-Id`; `If-Match` is optional and checked when present.
 
 - **204**, also when the recipe was already deleted.
 - **404**.
@@ -737,14 +743,20 @@ Body `{"tags": ["meal:dinner", …]}` replaces the recipe's tags.
 
 ### POST /v1/blobs
 
-Uploads a recipe photo from the phone (gallery or camera). Body: `multipart/form-data` with part `image` (JPEG or
-PNG; at most 25 MiB). The server re-encodes it as JPEG of at most 1600 px on the longer edge, whatever was sent (EXIF
-orientation is not applied: the app sends the photo upright). The recipe shows it once an edit
+Uploads a recipe photo from the phone (gallery or camera). Body: `multipart/form-data` with part `image` (JPEG, PNG
+or WebP; at most 25 MiB). The server re-encodes it as WebP of at most 1280 px on the longer edge, whatever was sent
+(EXIF orientation is not applied: the app sends the photo upright). The recipe shows it once an edit
 (`POST /v1/recipes/{recipeId}/revisions`) sets `images[0]` to `ref`, or a capture carries `ref` in `recipe.images[0]`
 (manual entry, a corrected preview): the recipe made from it gets that photo. It then is the recipe's
-`thumbnailBlob`. A photo nothing names after 7 days (no revision, candidate, capture or recipe) is deleted.
+`thumbnailBlob`.
 
-- **201** `{"blob": "<sha256>", "ref": "blob:<sha256>", "width": 1600, "height": 1200, "sizeBytes": 245678}`.
+Only current photos are kept (every night, and after a purge): a photo no live recipe shows and no capture still
+waiting for a decision needs is deleted for good: a replaced photo at once, one nothing ever named after 7 days. A
+revision restored from the history comes back without its deleted photo (the `blob:` entry is left out instead of
+**400** `unknown_photo`). Photos the server stores itself (from web pages, PDFs, dish cut-outs) are WebP of at most
+1280 px too.
+
+- **201** `{"blob": "<sha256>", "ref": "blob:<sha256>", "width": 1280, "height": 960, "sizeBytes": 85678}`.
 - **400** `invalid_image`: not a readable image. **400** `invalid_request`: no part `image`.
 - **413** `payload_too_large`.
 
@@ -756,7 +768,8 @@ A revision whose `images` contain a `blob:` entry that is not a photo uploaded i
 A capture body or attachment, a photo found in one, an uploaded photo or a recipe thumbnail of the caller's
 household, by its SHA-256 (e.g. `thumbnailBlob`). Another household's blob answers 404.
 
-- **200** the content, with the attachment's media type (`application/json` for a capture body) and
+- **200** the content, with its media type (the attachment's; `image/webp` for photos the server stored, older ones
+  `image/jpeg`; `application/json` for a capture body) and
   `Cache-Control: private, max-age=31536000, immutable`.
 - **304** with `If-None-Match`.
 - **404**.
@@ -815,8 +828,8 @@ invitation (`POST /v1/admin/households/{householdId}/invitations`) becomes its o
 
 ### DELETE /v1/admin/households/{householdId}
 
-Deletes a household with all its users, as `DELETE /v1/household` by its owner. **204**, also when already deleted ·
-**404** · **409** `default_household`.
+Deletes a household with all its users, as `DELETE /v1/household` by its owner (purged a few minutes later). **204**,
+also when already deleted and not yet purged · **404** (also once purged) · **409** `default_household`.
 
 ### POST /v1/admin/households/{householdId}/invitations
 
@@ -850,10 +863,11 @@ Revokes the device token and frees its name; logging in again adds a new device.
 
 ### DELETE /v1/admin/users/{userId}
 
-Deletes a user, also one with history:
-- all its device tokens are revoked, its password is removed and its edit locks are released;
-- its captures, decisions and revisions stay and still show its name;
-- the name and the slot in the user limit are free, so the same name can register again as a new user.
+Deletes a user for good, also one with history:
+- its name, e-mail, password, device names and tokens are wiped, its devices revoked, its edit locks and login codes
+  dropped;
+- its captures, decisions and revisions stay in the household without an author name (`userName` absent);
+- the name, the e-mail and the slot in the user limit are free, so the same name can register again as a new user.
 
 **204**, also when already deleted · **404**.
 

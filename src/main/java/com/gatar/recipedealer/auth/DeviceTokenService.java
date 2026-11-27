@@ -82,19 +82,28 @@ public class DeviceTokenService {
     }
 
     /**
-     * Deletes a user: revokes all its devices and drops its edit locks; the row stays for the history that references
-     * it, and the name is free for a new user. Returns false if the user does not exist; deleting twice is a no-op.
+     * Deletes a user for good (user, 2026-11-27): name, e-mail, password, device names and tokens are wiped, devices
+     * revoked, edit locks and login codes dropped. The row (and its devices' rows) stays only because captures and the
+     * history refer to it; they then show no author. The name and e-mail are free at once. Returns false if the user
+     * does not exist; deleting twice is a no-op.
      */
     @Transactional
     public boolean deleteUser(UUID userId) {
-        int updated = jdbc.sql("UPDATE app_user SET deleted_at = coalesce(deleted_at, now()), password_hash = NULL WHERE id = :id")
+        int updated = jdbc.sql("""
+                        UPDATE app_user SET deleted_at = coalesce(deleted_at, now()), name = NULL, email = NULL,
+                                            password_hash = NULL
+                        WHERE id = :id""")
                 .param("id", userId)
                 .update();
         if (updated == 0) {
             return false;
         }
-        jdbc.sql("UPDATE device_token SET revoked_at = coalesce(revoked_at, now()) WHERE user_id = :id").param("id", userId).update();
+        jdbc.sql("""
+                        UPDATE device_token SET revoked_at = coalesce(revoked_at, now()), device_name = NULL,
+                                                token_hash = sha256(convert_to(gen_random_uuid()::text, 'UTF8'))
+                        WHERE user_id = :id""").param("id", userId).update();
         jdbc.sql("DELETE FROM recipe_lock WHERE user_id = :id").param("id", userId).update();
+        jdbc.sql("DELETE FROM login_code WHERE user_id = :id").param("id", userId).update();
         return true;
     }
 

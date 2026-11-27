@@ -15,12 +15,9 @@ import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
-import com.gatar.recipedealer.blob.BlobRef;
-import com.gatar.recipedealer.blob.BlobStore;
-
 /**
- * Downloads one image into the blob store. Follows redirects itself, so that every hop is checked against private
- * addresses (unless allowed for tests).
+ * Downloads one image (at most {@code maxSize}, in memory). Follows redirects itself, so that every hop is checked
+ * against private addresses (unless allowed for tests).
  */
 @Component
 public class WebImageDownloader {
@@ -31,7 +28,7 @@ public class WebImageDownloader {
     /** Characters that are not allowed in a URI and that pages still put into image URLs. */
     private static final String UNSAFE = " \"<>\\^`{|}";
 
-    public record Image(String mediaType, BlobRef blob) {
+    public record Image(String mediaType, byte[] bytes) {
     }
 
     /** A download that will not work on a retry: missing, not an image, too large, a forbidden address, … */
@@ -41,12 +38,10 @@ public class WebImageDownloader {
         }
     }
 
-    private final BlobStore blobs;
     private final WebImageProperties properties;
     private final HttpClient http;
 
-    public WebImageDownloader(BlobStore blobs, WebImageProperties properties) {
-        this.blobs = blobs;
+    public WebImageDownloader(WebImageProperties properties) {
         this.properties = properties;
         this.http = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NEVER)
@@ -54,7 +49,6 @@ public class WebImageDownloader {
                 .build();
     }
 
-    /** Stores the image as a blob (the caller records the blob row). */
     public Image download(String url) throws IOException, InterruptedException {
         URI uri = toUri(url);
         for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -89,11 +83,11 @@ public class WebImageDownloader {
                 if (response.headers().firstValueAsLong("Content-Length").orElse(0) > max) {
                     throw new PermanentFailure("larger than " + max + " bytes");
                 }
-                BlobRef blob = blobs.put(new LimitedInputStream(body, max));
-                if (blob.sizeBytes() == 0) {
+                byte[] bytes = new LimitedInputStream(body, max).readAllBytes();
+                if (bytes.length == 0) {
                     throw new IOException("empty body");
                 }
-                return new Image(type, blob);
+                return new Image(type, bytes);
             }
         }
         throw new PermanentFailure("more than " + MAX_REDIRECTS + " redirects");

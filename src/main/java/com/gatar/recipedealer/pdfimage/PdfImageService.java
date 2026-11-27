@@ -15,6 +15,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.gatar.recipedealer.blob.BlobRef;
 import com.gatar.recipedealer.blob.BlobStore;
+import com.gatar.recipedealer.common.Images;
 import com.gatar.recipedealer.common.Jdbc;
 import com.gatar.recipedealer.recipe.RecipeRepository;
 
@@ -87,7 +88,7 @@ public class PdfImageService {
         }
         BlobRef blob;
         try {
-            blob = blobs.put(new ByteArrayInputStream(photo.get().jpeg()));
+            blob = blobs.put(new ByteArrayInputStream(photo.get().webp()));
         } catch (IOException e) {
             log.warn("Capture {}: cannot store the photo of PDF {}, retried later: {}", pdf.captureId(), pdf.name(), e.toString());
             return;
@@ -106,12 +107,13 @@ public class PdfImageService {
 
     private void record(Pdf pdf, BlobRef blob, PdfImageExtractor.Photo photo, String error) {
         jdbc.sql("""
-                        INSERT INTO pdf_image (capture_id, attachment_name, blob_sha256, page, width, height, error)
-                        VALUES (:captureId, :name, :sha256, :page, :width, :height, :error)
+                        INSERT INTO pdf_image (capture_id, attachment_name, blob_sha256, media_type, page, width, height, error)
+                        VALUES (:captureId, :name, :sha256, :mediaType, :page, :width, :height, :error)
                         ON CONFLICT (capture_id, attachment_name) DO NOTHING""")
                 .param("captureId", pdf.captureId())
                 .param("name", pdf.name())
                 .param("sha256", blob == null ? null : blob.sha256())
+                .param("mediaType", blob == null ? null : Images.WEBP)
                 .param("page", photo == null ? null : photo.page())
                 .param("width", photo == null ? null : photo.width())
                 .param("height", photo == null ? null : photo.height())

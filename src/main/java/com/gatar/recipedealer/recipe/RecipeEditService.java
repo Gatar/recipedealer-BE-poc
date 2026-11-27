@@ -46,6 +46,7 @@ public class RecipeEditService {
             throw ApiException.badRequest("body must be a recipe object");
         }
         validator.validateRecipe(recipe);
+        recipe = photos.withoutDeletedPhotos(recipeId, device.householdId(), recipe);
         photos.requireKnown(device.householdId(), recipe);
         var head = recipes.lockHead(recipeId).orElseThrow(() -> new NotFoundException("recipe " + recipeId + " not found"));
         if (head.deleted() || head.mergedInto() != null) {
@@ -58,7 +59,10 @@ public class RecipeEditService {
         return revisions.addRevision(recipeId, content, true);
     }
 
-    /** Soft delete: the recipe becomes a tombstone in the sync feed and its identity keys are freed. */
+    /**
+     * The recipe becomes a tombstone in the sync feed and its identity keys are freed at once; everything else goes
+     * for good a few minutes later ({@link com.gatar.recipedealer.purge.PurgeService}).
+     */
     @Transactional
     public void delete(UUID recipeId, UUID lockId, String ifMatch) {
         var head = recipes.lockHead(recipeId).orElseThrow(() -> new NotFoundException("recipe " + recipeId + " not found"));

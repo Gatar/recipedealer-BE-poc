@@ -21,7 +21,7 @@ import com.gatar.recipedealer.processing.DishPhotoFinding;
 
 /**
  * Cuts the dish photo the model pointed at out of the original attachment (not out of the downscaled copy the model
- * saw) and stores it upright as a JPEG blob. The box of the extraction answer is rough, so the same model takes a
+ * saw) and stores it upright as a WebP blob ({@link Images#photo}). The box of the extraction answer is rough, so the same model takes a
  * second look ({@link RecipePrompt#DISH_PHOTO_PROMPT}) at a cut-out with a wide margin around it and gives the exact
  * edges, and picks the upright one of four turned copies of the page; when that call fails or answers nonsense, the
  * first box stays (not turned). A box that maps to no decodable original, or
@@ -110,7 +110,7 @@ public class DishPhotoCropper {
             return new Result(DishPhotoFinding.NONE, usage);
         }
         BufferedImage cutOut = Images.rotate(original.getSubimage(photo.x(), photo.y(), photo.width(), photo.height()), rotation);
-        BlobRef blob = blobs.put(new ByteArrayInputStream(Images.jpeg(Images.fit(cutOut, Images.PHOTO_MAX_EDGE))));
+        BlobRef blob = blobs.put(new ByteArrayInputStream(Images.photo(cutOut)));
         return new Result(new DishPhotoFinding(new DishPhotoFinding.Photo(sent.attachment().name(), blob.sha256(),
                 blob.sizeBytes(), photo.x(), photo.y(), photo.width(), photo.height(), rotation)), usage);
     }

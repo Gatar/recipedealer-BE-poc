@@ -33,8 +33,9 @@ import io.github.bucket4j.Bucket;
 
 /**
  * Self-service households: anyone creates one (and becomes its owner), owners invite members with single-use codes,
- * manage members and devices; every user can delete its own account. Deleting is soft: users and the household get
- * {@code deleted_at}, devices are revoked, the data stays.
+ * manage members and devices; every user can delete its own account. Deleting is permanent (user, 2026-11-27): an
+ * account loses its personal data at once ({@link DeviceTokenService#deleteUser}); a household gets {@code deleted_at}
+ * and is purged with all its data a few minutes later ({@link com.gatar.recipedealer.purge.PurgeService}).
  */
 @Service
 public class HouseholdService {

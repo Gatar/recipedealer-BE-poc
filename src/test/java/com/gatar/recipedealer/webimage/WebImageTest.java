@@ -3,10 +3,19 @@ package com.gatar.recipedealer.webimage;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.awt.Color;
+import java.awt.GradientPaint;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.UUID;
+
+import javax.imageio.ImageIO;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -21,8 +30,11 @@ import org.springframework.util.unit.DataSize;
 import com.gatar.recipedealer.IntegrationTest;
 import com.gatar.recipedealer.TestAuth;
 import com.gatar.recipedealer.TestCaptures;
+import com.gatar.recipedealer.blob.BlobRef;
 import com.gatar.recipedealer.blob.BlobStore;
 import com.gatar.recipedealer.common.Hashing;
+import com.gatar.recipedealer.common.Images;
+import com.gatar.recipedealer.photo.PhotoService;
 import com.gatar.recipedealer.processing.JobWorker;
 import com.sun.net.httpserver.HttpServer;
 
@@ -31,6 +43,21 @@ class WebImageTest {
 
     private static final byte[] JPEG = {(byte) 0xff, (byte) 0xd8, (byte) 0xff, (byte) 0xe0, 1, 2, 3, 4, 5};
     private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 9, 8, 7};
+    /** A real photo-sized JPEG (the others are only headers the server cannot decode, so they are stored as they came). */
+    private static final byte[] REAL_JPEG = realJpeg();
+
+    private static byte[] realJpeg() {
+        BufferedImage image = new BufferedImage(1600, 1200, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        g.setPaint(new GradientPaint(0, 0, Color.ORANGE, 1600, 1200, Color.BLUE));
+        g.fillRect(0, 0, 1600, 1200);
+        g.dispose();
+        try {
+            return Images.jpeg(image);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
 
     static HttpServer server;
     static String base;
@@ -50,6 +77,9 @@ class WebImageTest {
     @Autowired
     BlobStore blobs;
 
+    @Autowired
+    PhotoService photos;
+
     String token;
     String suffix;
 
@@ -61,7 +91,9 @@ class WebImageTest {
             int status = 200;
             String type = "image/jpeg";
             byte[] body = JPEG;
-            if (path.startsWith("/png/")) {
+            if (path.startsWith("/real/")) {
+                body = REAL_JPEG;
+            } else if (path.startsWith("/png/")) {
                 type = "image/png";
                 body = PNG;
             } else if (path.startsWith("/missing/")) {
@@ -140,6 +172,61 @@ class WebImageTest {
     }
 
     @Test
+    void aRealPhotoIsStoredAsSmallerWebp() throws IOException {
+        String url = photo("real");
+        UUID recipeId = recipeWithPhoto(url);
+
+        images.fetch(url);
+
+        String sha256 = thumbnail(recipeId);
+        assertThat(sha256).isNotNull().isNotEqualTo(Hashing.sha256Hex(REAL_JPEG));
+        var served = mvc.get().uri("/v1/blobs/{sha}", sha256).header(HttpHeaders.AUTHORIZATION, TestAuth.bearer(token)).exchange();
+        assertThat(served).hasStatusOk().hasContentType("image/webp");
+        BufferedImage stored = ImageIO.read(new ByteArrayInputStream(served.getResponse().getContentAsByteArray()));
+        assertThat(stored.getWidth()).isEqualTo(Images.PHOTO_MAX_EDGE);
+        assertThat(stored.getHeight()).isEqualTo(960);
+    }
+
+    @Test
+    void aJpegStoredBeforeWebpIsConvertedAndTheRecipeGetsTheNewThumbnail() throws IOException {
+        String url = photo("legacy");
+        UUID recipeId = recipeWithPhoto(url);
+        BlobRef old = blobs.put(new ByteArrayInputStream(REAL_JPEG));
+        jdbc.sql("INSERT INTO blob (sha256, size_bytes) VALUES (:sha, :size) ON CONFLICT DO NOTHING")
+                .param("sha", old.sha256()).param("size", old.sizeBytes()).update();
+        jdbc.sql("INSERT INTO web_image (url, blob_sha256, media_type, attempts) VALUES (:url, :sha, 'image/jpeg', 1)")
+                .param("url", url).param("sha", old.sha256()).update();
+        jdbc.sql("UPDATE recipe SET thumbnail_blob = :sha WHERE id = :id").param("sha", old.sha256()).param("id", recipeId).update();
+
+        while (photos.convertToWebp(50) > 0) {
+            // other tests may have left convertible photos too
+        }
+
+        String converted = thumbnail(recipeId);
+        assertThat(converted).isNotEqualTo(old.sha256());
+        assertThat(jdbc.sql("SELECT media_type FROM web_image WHERE url = :url").param("url", url).query(String.class).single())
+                .isEqualTo(Images.WEBP);
+        assertThat(blobs.exists(old.sha256())).isFalse();
+        assertThat(Images.isWebp(blobs.open(converted).readAllBytes())).isTrue();
+    }
+
+    @Test
+    void aWebCopyNoRecipeShowsAnyMoreIsDeleted() {
+        String url = photo("real");
+        UUID recipeId = recipeWithPhoto(url);
+        images.fetch(url);
+        String copy = thumbnail(recipeId);
+        jdbc.sql("UPDATE recipe SET deleted_at = now() WHERE id = :id").param("id", recipeId).update();
+
+        assertThat(photos.sweep()).doesNotContain(copy); // still the (deleted, not yet purged) recipe's thumbnail
+        jdbc.sql("UPDATE recipe SET thumbnail_blob = NULL WHERE id = :id").param("id", recipeId).update();
+
+        assertThat(photos.sweep()).contains(copy);
+        assertThat(blobs.exists(copy)).isFalse();
+        assertThat(jdbc.sql("SELECT count(*) FROM web_image WHERE url = :url").param("url", url).query(Long.class).single()).isZero();
+    }
+
+    @Test
     void blobIsServedWithTheImageType() {
         String url = photo("png");
         recipeWithPhoto(url);
@@ -200,7 +287,7 @@ class WebImageTest {
 
     @Test
     void privateAddressesAreRefusedByDefault() throws Exception {
-        var strict = new WebImageDownloader(blobs, new WebImageProperties(null, 20, DataSize.ofMegabytes(10),
+        var strict = new WebImageDownloader(new WebImageProperties(null, 20, DataSize.ofMegabytes(10),
                 java.time.Duration.ofSeconds(5), 5, java.time.Duration.ofHours(1), false));
 
         assertThatThrownBy(() -> strict.download(photo("jpeg")))

@@ -21,6 +21,9 @@ jobs:
           cache: maven
       - name: Install cwebp (WebP photos)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends webp
+      # A broken Caddyfile would stop the whole server when the deploy recreates the Caddy container.
+      - name: Validate Caddyfile
+        run: docker run --rm -e SITE_ADDRESS=203.0.113.10 -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.11.7 caddy validate --config /etc/caddy/Caddyfile
       - name: Build and test (Testcontainers with PostgreSQL)
         run: ./mvnw -B verify
       - uses: actions/upload-artifact@v7
@@ -76,6 +79,9 @@ jobs:
           scp target/recipedealer.jar Dockerfile compose.yaml Caddyfile deploy/backup.sh deploy/restore.sh \
             deploy/wait-healthy.sh deploy/recipedealer-backup.cron \
             server:$APP_DIR/
+          # emptied, not recreated: Caddy's bind mount would keep showing a replaced directory
+          ssh server "mkdir -p $APP_DIR/www && find $APP_DIR/www -mindepth 1 -delete"
+          scp -r www/* server:$APP_DIR/www/
       - name: Build image and restart
         run: |
           ssh server "cd $APP_DIR && chmod +x backup.sh restore.sh wait-healthy.sh \

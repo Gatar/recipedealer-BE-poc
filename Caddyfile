@@ -1,8 +1,9 @@
 # SITE_ADDRESS (from .env) is the server's public IPv4, which app releases up to 1.1.0 call. Let's Encrypt issues IP
 # certificates only with the short-lived (160 h) profile, which Caddy renews automatically; the profile applies to
-# the domain too (fine, also renewed automatically). api.recipedealer.com (Cloudflare DNS, A + AAAA, proxy off so
-# Let's Encrypt reaches Caddy directly) is the address of later releases. Once no device runs an IP release, drop
-# SITE_ADDRESS, default_sni and the shortlived profile.
+# the domains too (fine, also renewed automatically). api.recipedealer.com is the API address of later releases;
+# recipedealer.com is the website (www/) plus the admin dashboard. Both are Cloudflare DNS records with the proxy off,
+# so Let's Encrypt reaches Caddy directly. Once no device runs an IP release, drop SITE_ADDRESS, default_sni and the
+# shortlived profile.
 {
 	# Clients connecting to an IP address send no SNI; use the site address to pick the certificate.
 	default_sni {$SITE_ADDRESS}
@@ -11,12 +12,31 @@
 	}
 }
 
-{$SITE_ADDRESS}, api.recipedealer.com {
+(backend) {
 	# Keep in sync with spring.servlet.multipart (25 MiB per file, 50 MiB per request; Spring "MB" means MiB); larger bodies get 413.
 	request_body {
 		max_size 50MiB
 	}
-	encode zstd gzip
 	reverse_proxy app:8080
+}
+
+{$SITE_ADDRESS}, api.recipedealer.com {
+	encode zstd gzip
+	import backend
+	log
+}
+
+# The website. The admin dashboard and its API are served here too (same origin: the browser keeps the admin login
+# per host); the address bar keeps recipedealer.com. The app's API stays on api.recipedealer.com.
+recipedealer.com {
+	encode zstd gzip
+	@backend path /admin /admin/* /v1/admin/*
+	handle @backend {
+		import backend
+	}
+	handle {
+		root * /srv/www
+		file_server
+	}
 	log
 }

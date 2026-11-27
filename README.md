@@ -135,12 +135,18 @@ connecting to an IP send no SNI, so the Caddyfile sets `default_sni` to the site
 `api.recipedealer.com` (Cloudflare DNS: A `2.31.66.200` and AAAA `2a01:4f8:c016:6343::1`, proxy off, i.e.
 "DNS only") is served next to the IP from the same site block; Caddy gets its certificate from Let's Encrypt
 (HTTP-01 on port 80 or TLS-ALPN-01 on 443, so Let's Encrypt must reach the VPS directly: with the Cloudflare proxy on,
-issuing fails). The root `recipedealer.com` (A record only) has no site block yet. App releases up to 1.1.0 call the
-IP; once no device runs one, remove `SITE_ADDRESS`, `default_sni` and the `shortlived` profile from the Caddyfile.
+issuing fails). App releases up to 1.1.0 call the IP; once no device runs one, remove `SITE_ADDRESS`, `default_sni`
+and the `shortlived` profile from the Caddyfile.
 
-The deploy job runs `caddy reload` after `docker compose up`: Caddy does not watch the mounted Caddyfile, and the
-container is not recreated when only its content changes. An invalid Caddyfile fails the reload (and the deploy step)
-while the old configuration keeps running.
+The root `recipedealer.com` (A record) is the website: static files from `www/` in this repository (the deploy copies
+them to `/srv/recipedealer/app/www`, mounted into Caddy as `/srv/www`), except `/admin`, `/admin/*` and
+`/v1/admin/*`, which Caddy proxies to the app, so the admin dashboard opens at `https://recipedealer.com/admin/`
+(it works on `api.recipedealer.com` and the IP too). No `www.` record yet.
+
+The build job validates the Caddyfile (`caddy validate`); the deploy job runs `caddy reload` after
+`docker compose up`: Caddy does not watch the mounted Caddyfile, and the container is not recreated when only its
+content changes. An invalid Caddyfile fails the reload (and the deploy step) while the old configuration keeps
+running.
 
 ### Enroll a device
 

@@ -67,5 +67,7 @@ services:
       SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS must be set in .env (server IPv4 or domain)}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # website (www/ in the repository); the deploy replaces its content in place, keeping the mounted directory
+      - ./www:/srv/www:ro
       - ${DATA_DIR:-/srv/recipedealer}/caddy/data:/data
       - ${DATA_DIR:-/srv/recipedealer}/caddy/config:/config

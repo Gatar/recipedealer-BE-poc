@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Polityka prywatności – RecipeDealer</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header><a class="home" href="/">RecipeDealer</a></header>
+<main>
+    <h1>Polityka prywatności</h1>
+    <p class="meta">Obowiązuje od 27 listopada 2026 r.</p>
+
+    <p>RecipeDealer to aplikacja na Androida z serwerem, która zbiera przepisy z udostępnionych stron, tekstów,
+        zdjęć i plików PDF w jedną wspólną książkę przepisów domu (kilku osób i urządzeń). Ta polityka opisuje, jakie
+        dane przetwarza aplikacja i serwer RecipeDealer, po co, komu je przekazuje i jak je usunąć.</p>
+
+    <h2>1. Administrator danych i kontakt</h2>
+    <p>Administratorem danych jest twórca aplikacji RecipeDealer (osoba prywatna). We wszystkich sprawach dotyczących
+        danych osobowych, także wniosków o ich usunięcie, pisz na adres
+        <a href="mailto:privacy@recipedealer.com">privacy@recipedealer.com</a>.</p>
+
+    <h2>2. Jakie dane przetwarzamy</h2>
+    <h3>Konto</h3>
+    <ul>
+        <li>nazwa użytkownika i rola w domu (właściciel albo domownik),</li>
+        <li>hasło – przechowywane wyłącznie jako skrót (bcrypt), nigdy w postaci jawnej,</li>
+        <li>adres e-mail – wymagany od właściciela domu, opcjonalny dla domowników; nie wysyłamy na niego reklam.</li>
+    </ul>
+    <h3>Dom</h3>
+    <ul>
+        <li>nazwa domu, lista domowników i ich urządzeń, zaproszenia (ważne 48 godzin) i jednorazowe kody logowania,</li>
+        <li>limity domu i miesięczny koszt korzystania z modeli AI (do rozliczenia limitu).</li>
+    </ul>
+    <h3>Urządzenia</h3>
+    <ul>
+        <li>nazwa urządzenia (domyślnie nazwa lub model telefonu, można ją zmienić),</li>
+        <li>token dostępu – na serwerze przechowywany tylko jako skrót – oraz data ostatniego użycia.</li>
+    </ul>
+    <h3>Treści, które dodajesz</h3>
+    <ul>
+        <li>to, co udostępnisz aplikacji: linki do stron, teksty, zdjęcia, zrzuty ekranu i pliki PDF,</li>
+        <li>tekst rozpoznany z nich na telefonie oraz przepisy, które z nich powstały (tytuł, składniki, kroki,
+            notatki, zdjęcie potrawy, tagi),</li>
+        <li>historia zmian przepisu: kto, z którego urządzenia i kiedy dodał lub zmienił przepis.</li>
+    </ul>
+    <h3>Dane techniczne</h3>
+    <ul>
+        <li>logi serwera: adres IP, czas, adres wywołania, identyfikator aplikacji lub przeglądarki i kod odpowiedzi.</li>
+    </ul>
+    <p>Nie zbieramy lokalizacji, kontaktów ani identyfikatorów reklamowych. Aplikacja nie wyświetla reklam i nie
+        zawiera narzędzi analitycznych ani śledzących.</p>
+
+    <h2>3. Co dzieje się na telefonie</h2>
+    <ul>
+        <li>Strony z udostępnionych linków telefon otwiera sam, w niewidocznym oknie przeglądarki; strona widzi wtedy
+            adres IP telefonu, tak jak przy zwykłym otwarciu w przeglądarce.</li>
+        <li>Tekst ze zdjęć i plików PDF rozpoznaje na telefonie biblioteka Google ML Kit. Zdjęcia i rozpoznany tekst
+            nie są przy tym wysyłane do Google; ML Kit może wysyłać do Google ogólne dane o działaniu i wydajności
+            biblioteki.</li>
+        <li>Dane do zalogowania (token) i kopia przepisów do pracy bez internetu są przechowywane w pamięci aplikacji
+            na telefonie i znikają po jej odinstalowaniu.</li>
+    </ul>
+
+    <h2>4. Po co i na jakiej podstawie</h2>
+    <ul>
+        <li>Prowadzenie konta i domu, zapisywanie, odczytywanie, tagowanie i tłumaczenie przepisów oraz synchronizacja
+            między urządzeniami – to usługa, z której korzystasz (art. 6 ust. 1 lit. b RODO).</li>
+        <li>Bezpieczeństwo, ochrona przed nadużyciami, usuwanie błędów i kopie zapasowe – nasz prawnie uzasadniony
+            interes (art. 6 ust. 1 lit. f RODO).</li>
+    </ul>
+
+    <h2>5. Komu przekazujemy dane</h2>
+    <ul>
+        <li><strong>Domownicy</strong> – wszyscy członkowie Twojego domu widzą przepisy domu, jego członków i ich
+            urządzenia. Inne domy nie widzą Twoich danych.</li>
+        <li><strong>Hetzner Online GmbH</strong> (Niemcy) – serwer i wszystkie dane znajdują się w centrum danych
+            Hetzner w Falkenstein w Niemczech.</li>
+        <li><strong>Anthropic</strong> (USA, model Claude) – treść udostępnionego materiału (adres strony, tekst,
+            zdjęcia, pliki PDF) jest wysyłana do Anthropic, aby odczytać z niej przepis, wyciąć zdjęcie potrawy, dobrać tagi i,
+            jeśli włączysz tę opcję, przetłumaczyć przepis. Przekazujemy tylko treść przepisu, bez nazwy konta,
+            adresu e-mail czy danych urządzenia. Anthropic przetwarza dane poza Europejskim Obszarem Gospodarczym na
+            podstawie swoich warunków dla usług API (z klauzulami umownymi zatwierdzonymi przez Komisję Europejską)
+            i nie wykorzystuje ich do trenowania modeli.</li>
+        <li><strong>Strony z przepisami</strong> – serwer pobiera zdjęcie przepisu ze strony, z której pochodzi link;
+            ta strona widzi adres serwera, a nie Twój.</li>
+        <li><strong>Cloudflare</strong> obsługuje tylko adresy domeny (DNS); ruch aplikacji przez Cloudflare nie
+            przechodzi.</li>
+    </ul>
+    <p>Nie sprzedajemy danych i nie udostępniamy ich nikomu innemu, chyba że wymaga tego prawo.</p>
+
+    <h2>6. Jak długo przechowujemy dane</h2>
+    <ul>
+        <li>Dane konta, domu i przepisy – do czasu, aż je usuniesz.</li>
+        <li><strong>Usunięty przepis</strong> serwer usuwa na zawsze w ciągu kilku minut: treść, historię, zdjęcia i
+            pliki, z których powstał. Zostaje tylko jego identyfikator i czas usunięcia, aby pozostałe urządzenia
+            domu usunęły go u siebie.</li>
+        <li>Zdjęcie zastąpione innym jest usuwane od razu; zdjęcie wysłane z telefonu, ale niezapisane w żadnym
+            przepisie – po 7 dniach.</li>
+        <li><strong>Usunięte konto</strong>: nazwa, adres e-mail, hasło, urządzenia i kody logowania są usuwane od
+            razu. Przepisy, które dodałeś, zostają w domu jako wspólne, bez Twojej nazwy (opisane jako „usunięte
+            konto”).</li>
+        <li><strong>Usunięty dom</strong>: w ciągu kilku minut serwer usuwa wszystkie jego dane – przepisy, zdjęcia,
+            pliki, tagi i konta domowników. Gdy z domu usunie się ostatni użytkownik, dom jest usuwany razem z nim.</li>
+        <li>Kopie zapasowe bazy danych powstają co noc i są przechowywane przez 7 dni, potem nadpisywane; usunięte
+            dane znikają więc z kopii najpóźniej po 7 dniach.</li>
+        <li>Logi serwera mają ograniczony rozmiar i są automatycznie nadpisywane nowszymi wpisami.</li>
+    </ul>
+    <p>Jak usunąć konto, dom lub przepis: <a href="/delete-account.html">Usuwanie konta i danych</a>.</p>
+
+    <h2>7. Twoje prawa</h2>
+    <p>Masz prawo dostępu do swoich danych, ich sprostowania, usunięcia, ograniczenia przetwarzania, przeniesienia
+        oraz sprzeciwu wobec przetwarzania opartego na prawnie uzasadnionym interesie. Większość z nich zrealizujesz
+        sam w aplikacji (zmiana adresu e-mail i hasła, edycja i usuwanie przepisów, usunięcie konta lub domu);
+        w pozostałych sprawach napisz na <a href="mailto:privacy@recipedealer.com">privacy@recipedealer.com</a>.
+        Odpowiadamy w ciągu 30 dni. Możesz też złożyć skargę do Prezesa Urzędu Ochrony Danych Osobowych
+        (<a href="https://uodo.gov.pl">uodo.gov.pl</a>).</p>
+
+    <h2>8. Bezpieczeństwo</h2>
+    <ul>
+        <li>Aplikacja łączy się z serwerem wyłącznie szyfrowanym połączeniem HTTPS.</li>
+        <li>Hasła i tokeny urządzeń są przechowywane na serwerze tylko jako skróty.</li>
+        <li>Każdy dom ma dostęp wyłącznie do własnych danych; odłączone urządzenie od razu traci dostęp.</li>
+    </ul>
+
+    <h2>9. Dzieci</h2>
+    <p>RecipeDealer nie jest przeznaczony dla dzieci poniżej 16 lat i świadomie nie zbieramy ich danych.</p>
+
+    <h2>10. Zmiany polityki</h2>
+    <p>O zmianach tej polityki informujemy na tej stronie, zmieniając datę na jej początku. Istotne zmiany opiszemy
+        też w aplikacji.</p>
+</main>
+<footer>
+    <a href="/">Strona główna</a>
+    <a href="/delete-account.html">Usuwanie konta i danych</a>
+</footer>
+</body>
+</html>

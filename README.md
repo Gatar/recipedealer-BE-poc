@@ -122,27 +122,24 @@ small application image itself (no registry).
    waits until the app answers. Caddy then requests the certificate; check with
    `docker compose -f /srv/recipedealer/app/compose.yaml logs caddy`.
 
-5. **Configure the phone**: base URL `https://<server IPv4>` and a device token (next section).
+5. **The app** has the server address built in (`SERVER_URL` in the app's `build.gradle.kts`); devices log in
+   from the app or get a device token (next section).
 
-### HTTPS on an IP address
+### Domains
 
-Let's Encrypt issues certificates for IP addresses only with the short-lived profile (about 6 days). Caddy 2.11
-supports this (`cert_issuer acme { profile shortlived }` in the Caddyfile) and renews automatically. Clients
-connecting to an IP send no SNI, so the Caddyfile sets `default_sni` to the site address.
+All on the user's Cloudflare account as DNS records only (proxy off, i.e. "DNS only"): Caddy gets the certificates
+from Let's Encrypt itself (HTTP-01 on port 80 or TLS-ALPN-01 on 443, so Let's Encrypt must reach the VPS directly:
+with the Cloudflare proxy on, issuing fails).
 
-### Domain
-
-`api.recipedealer.com` (Cloudflare DNS: A `2.31.66.200` and AAAA `2a01:4f8:c016:6343::1`, proxy off, i.e.
-"DNS only") is served next to the IP from the same site block; Caddy gets its certificate from Let's Encrypt
-(HTTP-01 on port 80 or TLS-ALPN-01 on 443, so Let's Encrypt must reach the VPS directly: with the Cloudflare proxy on,
-issuing fails). App releases up to 1.1.0 call the IP; once no device runs one, remove `SITE_ADDRESS`, `default_sni`
-and the `shortlived` profile from the Caddyfile.
-
-The root `recipedealer.com` (A record) is the website: static files from `www/` in this repository (the deploy copies
-them to `/srv/recipedealer/app/www`, mounted into Caddy as `/srv/www`), except `/admin`, `/admin/*` and
-`/v1/admin/*`, which Caddy proxies to the app, so the admin dashboard opens at `https://recipedealer.com/admin/`
-(it works on `api.recipedealer.com` and the IP too). `www.recipedealer.com` (A record) redirects permanently to
-`https://recipedealer.com` with the same path.
+- `api.recipedealer.com` (A `2.31.66.200`, AAAA `2a01:4f8:c016:6343::1`): the API the app calls (releases from
+  1.1.1). Releases up to 1.1.0 called `https://2.31.66.200`; the IP address is not served since 2026-11-27 (no site
+  block, no certificate), so they cannot connect.
+- `recipedealer.com` (A record): the website, static files from `www/` in this repository (the deploy copies them to
+  `/srv/recipedealer/app/www`, mounted into Caddy as `/srv/www`): title page, `privacy.html` (privacy policy, the
+  Google Play listing links it) and `delete-account.html` (account deletion page for Google Play). `/admin`,
+  `/admin/*` and `/v1/admin/*` are proxied to the app, so the admin dashboard opens at
+  `https://recipedealer.com/admin/` (it works on `api.recipedealer.com` too).
+- `www.recipedealer.com` (A record): redirects permanently to `https://recipedealer.com` with the same path.
 
 The build job validates the Caddyfile (`caddy validate`); the deploy job runs `caddy reload` after
 `docker compose up`: Caddy does not watch the mounted Caddyfile, and the container is not recreated when only its

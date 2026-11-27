@@ -1,16 +1,7 @@
-# SITE_ADDRESS (from .env) is the server's public IPv4, which app releases up to 1.1.0 call. Let's Encrypt issues IP
-# certificates only with the short-lived (160 h) profile, which Caddy renews automatically; the profile applies to
-# the domains too (fine, also renewed automatically). api.recipedealer.com is the API address of later releases;
-# recipedealer.com is the website (www/) plus the admin dashboard. Both are Cloudflare DNS records with the proxy off,
-# so Let's Encrypt reaches Caddy directly. Once no device runs an IP release, drop SITE_ADDRESS, default_sni and the
-# shortlived profile.
-{
-	# Clients connecting to an IP address send no SNI; use the site address to pick the certificate.
-	default_sni {$SITE_ADDRESS}
-	cert_issuer acme {
-		profile shortlived
-	}
-}
+# Domains on the user's Cloudflare account, DNS only (proxy off), so Let's Encrypt reaches Caddy directly and Caddy
+# gets and renews the certificates itself. api.recipedealer.com is the app's API (releases from 1.1.1);
+# recipedealer.com is the website (www/) plus the admin dashboard; www.recipedealer.com redirects to it.
+# The server's IP address is not served any more (releases up to 1.1.0 called https://2.31.66.200; dropped 2026-11-27).
 
 (backend) {
 	# Keep in sync with spring.servlet.multipart (25 MiB per file, 50 MiB per request; Spring "MB" means MiB); larger bodies get 413.
@@ -20,7 +11,7 @@
 	reverse_proxy app:8080
 }
 
-{$SITE_ADDRESS}, api.recipedealer.com {
+api.recipedealer.com {
 	encode zstd gzip
 	import backend
 	log

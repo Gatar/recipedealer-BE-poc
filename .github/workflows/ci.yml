@@ -20,7 +20,9 @@ jobs:
           java-version: "25"
           cache: maven
       - name: Install cwebp (WebP photos)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends webp
+        # update fails when any of the runner's third-party repositories does (packages.microsoft.com answered 403
+        # on 2026-11-27); the Ubuntu lists are refreshed anyway, and a real problem fails the install
+        run: (sudo apt-get update || true) && sudo apt-get install -y --no-install-recommends webp
       # A broken Caddyfile would stop the whole server when the deploy recreates the Caddy container.
       - name: Validate Caddyfile
         run: docker run --rm -e SITE_ADDRESS=203.0.113.10 -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.11.7 caddy validate --config /etc/caddy/Caddyfile

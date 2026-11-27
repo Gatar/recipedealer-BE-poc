@@ -141,7 +141,8 @@ and the `shortlived` profile from the Caddyfile.
 The root `recipedealer.com` (A record) is the website: static files from `www/` in this repository (the deploy copies
 them to `/srv/recipedealer/app/www`, mounted into Caddy as `/srv/www`), except `/admin`, `/admin/*` and
 `/v1/admin/*`, which Caddy proxies to the app, so the admin dashboard opens at `https://recipedealer.com/admin/`
-(it works on `api.recipedealer.com` and the IP too). No `www.` record yet.
+(it works on `api.recipedealer.com` and the IP too). `www.recipedealer.com` (A record) redirects permanently to
+`https://recipedealer.com` with the same path.
 
 The build job validates the Caddyfile (`caddy validate`); the deploy job runs `caddy reload` after
 `docker compose up`: Caddy does not watch the mounted Caddyfile, and the container is not recreated when only its

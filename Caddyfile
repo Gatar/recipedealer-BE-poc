@@ -40,3 +40,7 @@ recipedealer.com {
 	}
 	log
 }
+
+www.recipedealer.com {
+	redir https://recipedealer.com{uri} permanent
+}
